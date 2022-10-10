@@ -7,7 +7,7 @@ use skim::SkimItem;
 
 use crate::config::ProjectGroup;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Project {
     pub path: PathBuf,
     pub typename: String,

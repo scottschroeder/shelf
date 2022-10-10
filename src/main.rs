@@ -1,11 +1,13 @@
+use crate::tmux::get_tmux;
+
 mod argparse;
 
 mod cmd {
     pub mod project;
 }
 mod config;
-
 mod scan;
+mod tmux;
 
 fn main() -> anyhow::Result<()> {
     color_backtrace::install();
@@ -18,6 +20,19 @@ fn main() -> anyhow::Result<()> {
             argparse::ProjectPicker::Dirs(args) => cmd::project::dirs(args),
             argparse::ProjectPicker::Preset(args) => cmd::project::preset(args),
         },
+        argparse::SubCommand::Test(_) => {
+            if let Some(tmux) = get_tmux() {
+                println!(
+                    "Tmux #{} [{}] panes={}",
+                    tmux.get_tmux_number()?,
+                    tmux.get_tmux_name()?,
+                    tmux.count_tmux_panes()?,
+                );
+            } else {
+                log::warn!("not inside tmux");
+            }
+            Ok(())
+        }
     }
     .map_err(|e| {
         log::error!("{:?}", e);

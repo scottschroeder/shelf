@@ -5,12 +5,16 @@ use skim::{prelude::SkimOptionsBuilder, Skim, SkimItemReceiver, SkimItemSender};
 
 use self::project_dir::ProjectExtractor;
 use crate::{
-    argparse,
+    argparse::{self, TmuxRename},
     config::{load_config, ProjectGroup},
     scan::scan_git_repos,
+    tmux::get_tmux,
 };
 
 mod project_dir;
+
+type ProjectQueue = VecDeque<(ProjectGroup, Option<Arc<Project>>)>;
+const DEFAULT_TMUX_WINDOW_NAME: &str = "zsh";
 
 pub fn dirs(args: &argparse::ProjectDirs) -> anyhow::Result<()> {
     let mut groups = Vec::new();
@@ -24,81 +28,118 @@ pub fn dirs(args: &argparse::ProjectDirs) -> anyhow::Result<()> {
             recurse: args.git_recurse,
         });
     }
-    search(groups)
+    let project = search(groups)?;
+    update_tmux_and_display_results(&project, args.tmux_rename.as_ref())
 }
 pub fn preset(args: &argparse::ProjectPreset) -> anyhow::Result<()> {
     let config = load_config(args.config.as_deref())?;
-    search(config.projects)
+    let project = search(config.projects)?;
+    update_tmux_and_display_results(&project, args.tmux_rename.as_ref())
 }
 
-fn search(groups: Vec<ProjectGroup>) -> anyhow::Result<()> {
+fn update_tmux_and_display_results(
+    project: &Project,
+    tmux_rename: Option<&TmuxRename>,
+) -> anyhow::Result<()> {
+    if let Some(tmux_rename) = tmux_rename {
+        rename_tmux_default_window(&project.title, tmux_rename)?;
+    }
+    println!("{}", project.path.display());
+    Ok(())
+}
+
+fn search(groups: Vec<ProjectGroup>) -> anyhow::Result<Project> {
     log::debug!("groups: {:#?}", groups);
 
-    let (send, recv): (SkimItemSender, SkimItemReceiver) = skim::prelude::unbounded();
-    let mut queue: VecDeque<(ProjectGroup, Option<Arc<Project>>)> = VecDeque::new();
+    let mut queue: ProjectQueue = VecDeque::new();
     for root in groups {
         queue.push_back((root, None))
     }
-    std::thread::spawn(move || {
-        let default_config = ProjectGroup {
-            root: "".into(),
-            exclude: Vec::new(),
-            title: "unknown".to_string(),
-            extract: "(.*)".to_string(),
-            recurse: false,
-        };
-        let default_extract = ProjectExtractor::new(&default_config).expect("bad config");
 
-        while let Some((group_config, parent)) = queue.pop_front() {
-            let project_extract = ProjectExtractor::new(&group_config).expect("bad config");
-            let ignore_set = regex::bytes::RegexSet::new(group_config.exclude.as_slice())
-                .expect("bad exclude config");
-            let parent_proj = parent.as_ref().map(|p| p.as_ref());
-            for repo_path in scan_git_repos(&group_config.root, ignore_set) {
-                let proj = project_extract
-                    .extract(&repo_path, parent_proj)
-                    .unwrap_or_else(|| {
-                        default_extract
-                            .extract(&repo_path, parent_proj)
-                            .expect("default extraction config must return project")
-                    });
-                let proj = Arc::new(proj);
-                if let Err(e) = send.send(proj.clone()) {
-                    log::error!("channel send failure for `{:?}`: {}", proj.path, e)
-                };
-                // println!("{:?}", x);
-                if group_config.recurse {
-                    let mut new_group = group_config.clone();
-                    new_group.root = proj.path.clone();
-                    queue.push_back((new_group, Some(proj)));
-                }
+    let (send, recv): (SkimItemSender, SkimItemReceiver) = skim::prelude::unbounded();
+    let handle = std::thread::spawn(move || scan_groups(queue, send));
+    let resp = select_and_return_first(recv);
+
+    handle
+        .join()
+        .map_err(|e| anyhow::anyhow!("failed to join scan thread: {:?}", e))??;
+
+    if let Some(proj) = resp {
+        return Ok(proj);
+    }
+
+    anyhow::bail!("no item was selected");
+}
+
+fn scan_groups(mut queue: ProjectQueue, send: SkimItemSender) -> anyhow::Result<()> {
+    let default_config = ProjectGroup {
+        root: "".into(),
+        exclude: Vec::new(),
+        title: "unknown".to_string(),
+        extract: "(.*)".to_string(),
+        recurse: false,
+    };
+    let default_extract = ProjectExtractor::new(&default_config).expect("bad config");
+
+    while let Some((group_config, parent)) = queue.pop_front() {
+        let project_extract = ProjectExtractor::new(&group_config).expect("bad config");
+        let ignore_set = regex::bytes::RegexSet::new(group_config.exclude.as_slice())
+            .expect("bad exclude config");
+        let parent_proj = parent.as_ref().map(|p| p.as_ref());
+        for repo_path in scan_git_repos(&group_config.root, ignore_set) {
+            let proj = project_extract
+                .extract(&repo_path, parent_proj)
+                .unwrap_or_else(|| {
+                    default_extract
+                        .extract(&repo_path, parent_proj)
+                        .expect("default extraction config must return project")
+                });
+            let proj = Arc::new(proj);
+            if let Err(e) = send.send(proj.clone()) {
+                log::error!("channel send failure for `{:?}`: {}", proj.path, e)
+            };
+            // println!("{:?}", x);
+            if group_config.recurse {
+                let mut new_group = group_config.clone();
+                new_group.root = proj.path.clone();
+                queue.push_back((new_group, Some(proj)));
             }
         }
-    });
+    }
+    Ok(())
+}
 
+fn select_and_return_first(recv: SkimItemReceiver) -> Option<Project> {
     let options = SkimOptionsBuilder::default()
         // .height(Some("50%"))
         .multi(false)
         .build()
         .unwrap();
 
-    let selected_items = Skim::run_with(&options, Some(recv))
-        .map(|out| out.selected_items)
-        .unwrap_or_else(Vec::new);
-    let selected_projects = selected_items
-        .iter()
-        .map(|selected_item| {
-            selected_item
-                .as_any()
-                .downcast_ref::<Project>()
-                .unwrap()
-                .to_owned()
-        })
-        .collect::<Vec<_>>();
+    Skim::run_with(&options, Some(recv))?
+        .selected_items
+        .get(0)?
+        .as_any()
+        .downcast_ref::<Project>()
+        .cloned()
+}
 
-    for item in selected_projects.iter().take(1) {
-        println!("{}", item.path.display());
+fn rename_tmux_default_window(
+    name: &str,
+    tmux_rename: &argparse::TmuxRename,
+) -> anyhow::Result<()> {
+    if let Some(tmux) = get_tmux() {
+        match tmux_rename {
+            argparse::TmuxRename::DefaultOnly => {
+                if tmux.count_tmux_panes()? > 1 && tmux.get_tmux_name()? != DEFAULT_TMUX_WINDOW_NAME
+                {
+                    return Ok(());
+                }
+            }
+            argparse::TmuxRename::Force => {}
+        }
+
+        tmux.set_tmux_current_window_name(name)?;
     }
-
     Ok(())
 }

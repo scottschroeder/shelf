@@ -17,7 +17,7 @@ pub struct CliOpts {
 
 #[derive(Parser, Debug)]
 pub enum SubCommand {
-    // Test(Test),
+    Test(Test),
     /// Scan for project dirs
     #[clap(subcommand)]
     Project(ProjectPicker),
@@ -36,12 +36,25 @@ pub struct ProjectDirs {
     /// Keep recursing inside git repositories
     #[clap(long)]
     pub git_recurse: bool,
+    /// Rename tmux window behavior
+    #[clap(long, value_enum)]
+    pub tmux_rename: Option<TmuxRename>,
 }
 
 #[derive(Parser, Debug)]
 pub struct ProjectPreset {
     /// Override config path
+    #[clap(long)]
     pub config: Option<PathBuf>,
+    /// Rename tmux window behavior
+    #[clap(long, value_enum)]
+    pub tmux_rename: Option<TmuxRename>,
+}
+
+#[derive(Parser, Debug, Clone, clap::ValueEnum)]
+pub enum TmuxRename {
+    DefaultOnly,
+    Force,
 }
 
 #[derive(Parser, Debug)]
