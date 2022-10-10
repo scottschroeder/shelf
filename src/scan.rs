@@ -34,10 +34,11 @@ impl Iterator for GitRepoWalker {
                     if entry.path() == self.root {
                         continue;
                     }
-                    if !is_git_repo(&entry) {
+                    if self.ignore.is_match(entry.path().as_os_str().as_bytes()) {
+                        self.inner.skip_current_dir();
                         continue;
                     }
-                    if self.ignore.is_match(entry.path().as_os_str().as_bytes()) {
+                    if !is_git_repo(&entry) {
                         continue;
                     }
                     self.inner.skip_current_dir();
