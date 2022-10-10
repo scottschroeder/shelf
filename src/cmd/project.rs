@@ -57,12 +57,8 @@ fn search(groups: Vec<ProjectGroup>) -> anyhow::Result<Project> {
     }
 
     let (send, recv): (SkimItemSender, SkimItemReceiver) = skim::prelude::unbounded();
-    let handle = std::thread::spawn(move || scan_groups(queue, send));
+    std::thread::spawn(move || scan_groups(queue, send));
     let resp = select_and_return_first(recv);
-
-    handle
-        .join()
-        .map_err(|e| anyhow::anyhow!("failed to join scan thread: {:?}", e))??;
 
     if let Some(proj) = resp {
         return Ok(proj);
@@ -96,7 +92,7 @@ fn scan_groups(mut queue: ProjectQueue, send: SkimItemSender) -> anyhow::Result<
                 });
             let proj = Arc::new(proj);
             if let Err(e) = send.send(proj.clone()) {
-                log::error!("channel send failure for `{:?}`: {}", proj.path, e)
+                anyhow::bail!("channel send failure for `{:?}`: {}", proj.path, e);
             };
             // println!("{:?}", x);
             if group_config.recurse {
