@@ -16,7 +16,11 @@ anyhow = "1"
 skim = "0.9.4"
 walkdir = "2.3.2"
 regex = "1.6.0"
+terminal_size = "0.2.3"
+ansi_term = "0.12.1"
 
+git2 = "0.15.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 directories = "4.0.1"
+chrono = "0.4.23"

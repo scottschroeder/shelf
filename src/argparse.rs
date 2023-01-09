@@ -21,6 +21,8 @@ pub enum SubCommand {
     /// Scan for project dirs
     #[clap(subcommand)]
     Project(ProjectPicker),
+    /// Git Jump
+    GitJump(GitJump),
 }
 
 #[derive(Parser, Debug)]
@@ -55,6 +57,14 @@ pub struct ProjectPreset {
 pub enum TmuxRename {
     DefaultOnly,
     Force,
+}
+
+#[derive(Parser, Debug)]
+pub struct GitJump {
+    /// Root directories to scan from
+    pub root: Option<PathBuf>,
+    #[clap(long)]
+    pub use_author: bool,
 }
 
 #[derive(Parser, Debug)]

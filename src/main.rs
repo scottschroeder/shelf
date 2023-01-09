@@ -3,9 +3,11 @@ use crate::tmux::get_tmux;
 mod argparse;
 
 mod cmd {
+    pub mod gitjump;
     pub mod project;
 }
 mod config;
+mod git;
 mod scan;
 mod tmux;
 
@@ -33,6 +35,7 @@ fn main() -> anyhow::Result<()> {
             }
             Ok(())
         }
+        argparse::SubCommand::GitJump(cmd) => cmd::gitjump::jump(cmd),
     }
     .map_err(|e| {
         log::error!("{:?}", e);
@@ -43,7 +46,7 @@ fn main() -> anyhow::Result<()> {
 pub fn setup_logger(level: u8) {
     let mut builder = pretty_env_logger::formatted_timed_builder();
 
-    let noisy_modules: &[&str] = &["skim"];
+    let noisy_modules: &[&str] = &["skim", "tuikit"];
 
     let log_level = match level {
         //0 => log::Level::Error,
