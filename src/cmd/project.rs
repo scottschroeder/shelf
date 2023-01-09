@@ -112,12 +112,17 @@ fn select_and_return_first(recv: SkimItemReceiver) -> Option<Project> {
         .build()
         .unwrap();
 
-    Skim::run_with(&options, Some(recv))?
-        .selected_items
-        .get(0)?
-        .as_any()
-        .downcast_ref::<Project>()
-        .cloned()
+    let result = Skim::run_with(&options, Some(recv))?;
+    if result.is_abort {
+        None
+    } else {
+        result
+            .selected_items
+            .get(0)?
+            .as_any()
+            .downcast_ref::<Project>()
+            .cloned()
+    }
 }
 
 fn rename_tmux_default_window(

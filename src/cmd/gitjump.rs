@@ -217,7 +217,13 @@ pub fn jump(args: &argparse::GitJump) -> anyhow::Result<()> {
             log::error!("unable to send item for selection: {}", e);
         }
     }
-    let target = select_and_return_first(recv).ok_or_else(|| anyhow::anyhow!("no selection"))?;
+    let target = match select_and_return_first(recv) {
+        Some(t) => t,
+        None => {
+            log::warn!("no selection was made");
+            return Ok(());
+        }
+    };
     log::debug!("{:#?}", target);
 
     checkout_target(&repo, &target)?;
@@ -270,10 +276,15 @@ fn select_and_return_first(recv: SkimItemReceiver) -> Option<GitTarget> {
         .build()
         .unwrap();
 
-    Skim::run_with(&options, Some(recv))?
-        .selected_items
-        .get(0)?
-        .as_any()
-        .downcast_ref::<SkimGitTarget>()
-        .map(|s| s.inner.clone())
+    let result = Skim::run_with(&options, Some(recv))?;
+    if result.is_abort {
+        None
+    } else {
+        result
+            .selected_items
+            .get(0)?
+            .as_any()
+            .downcast_ref::<SkimGitTarget>()
+            .map(|s| s.inner.clone())
+    }
 }
