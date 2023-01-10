@@ -63,8 +63,18 @@ pub enum TmuxRename {
 pub struct GitJump {
     /// Root directories to scan from
     pub root: Option<PathBuf>,
+    /// Only show commits by the configured author
     #[clap(long)]
     pub use_author: bool,
+    /// Show all branches pointing to a commit, instead of just the first
+    #[clap(long)]
+    pub show_all_branches: bool,
+    /// Do not show preview window for each target
+    #[clap(long)]
+    pub disable_preview: bool,
+    /// Instead of showing the commit log, preview details about the commit
+    #[clap(long)]
+    pub preview_commit_details: bool,
 }
 
 #[derive(Parser, Debug)]

@@ -17,15 +17,16 @@ const RELATIVE_TIME_LOOKBACK_HOURS: i64 = 4;
 #[derive(Debug, Clone)]
 struct SkimGitTarget {
     inner: GitTarget,
+    preview_details: bool,
     display_str: skim::AnsiString<'static>,
 }
 
-impl From<GitTarget> for SkimGitTarget {
-    fn from(value: GitTarget) -> Self {
-        let ansi_str = format!("{}", DisplayLine(&value));
+impl SkimGitTarget {
+    fn new(target: GitTarget, preview_details: bool) -> SkimGitTarget {
+        let ansi_str = format!("{}", DisplayLine(&target));
         SkimGitTarget {
-            inner: value,
-            // display_str: skim::AnsiString::parse("\x1B[35mA\x1B[mB"),
+            inner: target,
+            preview_details,
             display_str: skim::AnsiString::parse(&ansi_str),
         }
     }
@@ -36,34 +37,57 @@ struct GitTarget {
     repo_path: std::path::PathBuf,
     commit: GitCommit,
     branches: Vec<GitBranch>,
+    is_merged: bool,
+    is_primary: bool,
 }
 
 struct DisplayLine<'a>(&'a GitTarget);
+const GREY: ansi_term::Color = ansi_term::Color::RGB(55, 55, 55);
+
+impl<'a> DisplayLine<'a> {
+    fn author_color(&self) -> ansi_term::Color {
+        ansi_term::Color::Blue
+    }
+    fn branch_color(&self) -> ansi_term::Color {
+        if self.0.is_primary || !self.0.is_merged {
+            ansi_term::Color::Yellow
+        } else {
+            GREY
+        }
+    }
+}
 
 impl<'a> std::fmt::Display for DisplayLine<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let target = self.0;
         let commit_time = DisplayTime(target.commit.time.seconds());
         let author_str = target.commit.author.as_str();
+        let author_style = self.author_color();
         let author = &[
-            ansi_term::Color::Blue.paint("["),
-            ansi_term::Color::Blue.paint(author_str),
-            ansi_term::Color::Blue.paint("]"),
+            author_style.paint("["),
+            author_style.paint(author_str),
+            author_style.paint("]"),
         ];
         write!(f, "{}", commit_time)?;
 
         if !target.branches.is_empty() {
-            write!(f, " {}", ansi_term::Color::Yellow.paint("("))?;
+            let branch_style = self.branch_color();
+            write!(
+                f,
+                " {}{}",
+                branch_style.paint(BRANCH_ICON),
+                branch_style.paint("("),
+            )?;
             for (idx, branch) in target.branches.iter().enumerate() {
                 if idx != 0 {
                     write!(f, ", ")?;
                 }
                 if branch.head {
-                    write!(f, "{}", ansi_term::Color::Yellow.bold().paint("*"))?;
+                    write!(f, "{}", branch_style.bold().paint("*"))?;
                 }
-                write!(f, "{}", ansi_term::Color::Yellow.paint(&branch.name))?;
+                write!(f, "{}", branch_style.paint(&branch.name))?;
             }
-            write!(f, "{}", ansi_term::Color::Yellow.paint(")"))?;
+            write!(f, "{}", branch_style.paint(")"))?;
         }
 
         write!(f, " {}", target.commit.message.trim())?;
@@ -120,27 +144,38 @@ impl SkimItem for SkimGitTarget {
     }
     fn preview(&self, _context: skim::PreviewContext) -> skim::ItemPreview {
         let target = &self.inner;
-        // skim::ItemPreview::Text(format!("{:#?}", self))
-        skim::ItemPreview::Command(
+        if self.preview_details {
+            skim::ItemPreview::Text(format!("{:#?}", target))
+        } else {
+            skim::ItemPreview::Command(
             format!(
                 "git -C {} log --color=always --graph --topo-order --pretty=format:'%C(red)%h%Creset -%C(bold yellow)%d%Creset %s %Cgreen(%cr) %C(blue)<%an>%Creset' {}",
                 target.repo_path.display(),
                 target.commit.id,
                 )
             )
+        }
     }
     fn display<'a>(&'a self, _context: skim::DisplayContext<'a>) -> skim::AnsiString<'a> {
         self.display_str.clone()
     }
 }
 
-fn build_targets(repo: &git2::Repository) -> anyhow::Result<Vec<GitTarget>> {
+fn build_targets(
+    args: &argparse::GitJump,
+    repo: &git2::Repository,
+) -> anyhow::Result<Vec<GitTarget>> {
     let mut target_map = HashMap::new();
 
     build_branches(repo, &mut target_map).context("failed to extract branches")?;
 
     let mut results = target_map.into_values().collect::<Vec<_>>();
-    results.iter_mut().for_each(|t| t.branches.sort());
+    results.iter_mut().for_each(|t| {
+        t.branches.sort();
+        if !args.show_all_branches {
+            t.branches.truncate(1)
+        }
+    });
     results.sort_by(|a, b| b.cmp(a));
     Ok(results)
 }
@@ -180,6 +215,8 @@ fn build_branches(
             repo_path: repo.path().to_owned(),
             commit: c,
             branches: Vec::with_capacity(1),
+            is_merged: false,
+            is_primary: false,
         });
         entry.branches.push(branch);
     }
@@ -202,7 +239,16 @@ pub fn jump(args: &argparse::GitJump) -> anyhow::Result<()> {
     let user = config.get_entry("user.name").context("get user.name")?;
     let name = user.value();
 
-    let targets = build_targets(&repo)?;
+    let mut targets = build_targets(args, &repo)?;
+
+    if let Ok(primary) = repo.refname_to_id("refs/remotes/origin/HEAD") {
+        for t in &mut targets {
+            if let Ok(x) = repo.merge_base(primary, t.commit.id) {
+                t.is_merged = x == t.commit.id;
+                t.is_primary = primary == t.commit.id;
+            }
+        }
+    }
 
     // log::debug!("{:#?}", targets);
 
@@ -212,12 +258,12 @@ pub fn jump(args: &argparse::GitJump) -> anyhow::Result<()> {
             log::trace!("skipping commit authored by {}", t.commit.author);
             continue;
         }
-        let item = Arc::new(SkimGitTarget::from(t));
+        let item = Arc::new(SkimGitTarget::new(t, args.preview_commit_details));
         if let Err(e) = send.send(item) {
             log::error!("unable to send item for selection: {}", e);
         }
     }
-    let target = match select_and_return_first(recv) {
+    let target = match select_and_return_first(args, recv) {
         Some(t) => t,
         None => {
             log::warn!("no selection was made");
@@ -261,14 +307,18 @@ fn checkout_target(repo: &git2::Repository, target: &GitTarget) -> anyhow::Resul
     Ok(())
 }
 
-fn select_and_return_first(recv: SkimItemReceiver) -> Option<GitTarget> {
-    let width_ok = terminal_size().and_then(|(w, _)| {
-        if w.0 > WINDOW_SPLIT_MIN_SIZE {
-            Some("yes")
-        } else {
-            None
-        }
-    });
+fn select_and_return_first(args: &argparse::GitJump, recv: SkimItemReceiver) -> Option<GitTarget> {
+    let width_ok = if args.disable_preview {
+        None
+    } else {
+        terminal_size().and_then(|(w, _)| {
+            if w.0 > WINDOW_SPLIT_MIN_SIZE {
+                Some("yes")
+            } else {
+                None
+            }
+        })
+    };
     let options = SkimOptionsBuilder::default()
         // .height(Some("50%"))
         .multi(false)
