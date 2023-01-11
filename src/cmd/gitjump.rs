@@ -252,17 +252,20 @@ pub fn jump(args: &argparse::GitJump) -> anyhow::Result<()> {
 
     // log::debug!("{:#?}", targets);
 
-    let (send, recv): (SkimItemSender, SkimItemReceiver) = skim::prelude::unbounded();
-    for t in targets {
-        if args.use_author && Some(t.commit.author.as_str()) != name {
-            log::trace!("skipping commit authored by {}", t.commit.author);
-            continue;
+    let recv = {
+        let (send, recv): (SkimItemSender, SkimItemReceiver) = skim::prelude::unbounded();
+        for t in targets {
+            if args.use_author && Some(t.commit.author.as_str()) != name {
+                log::trace!("skipping commit authored by {}", t.commit.author);
+                continue;
+            }
+            let item = Arc::new(SkimGitTarget::new(t, args.preview_commit_details));
+            if let Err(e) = send.send(item) {
+                log::error!("unable to send item for selection: {}", e);
+            }
         }
-        let item = Arc::new(SkimGitTarget::new(t, args.preview_commit_details));
-        if let Err(e) = send.send(item) {
-            log::error!("unable to send item for selection: {}", e);
-        }
-    }
+        recv
+    };
     let target = match select_and_return_first(args, recv) {
         Some(t) => t,
         None => {
