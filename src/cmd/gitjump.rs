@@ -239,8 +239,7 @@ pub fn jump(args: &argparse::GitJump) -> anyhow::Result<()> {
     let user = config.get_entry("user.name").context("get user.name")?;
     let name = user.value();
 
-    let mut targets = build_targets(args, &repo)?;
-
+    let targets = build_targets(args, &repo)?;
 
     let primary = repo.refname_to_id("refs/remotes/origin/HEAD").ok();
 
