@@ -241,24 +241,25 @@ pub fn jump(args: &argparse::GitJump) -> anyhow::Result<()> {
 
     let mut targets = build_targets(args, &repo)?;
 
-    if let Ok(primary) = repo.refname_to_id("refs/remotes/origin/HEAD") {
-        for t in &mut targets {
-            if let Ok(x) = repo.merge_base(primary, t.commit.id) {
-                t.is_merged = x == t.commit.id;
-                t.is_primary = primary == t.commit.id;
-            }
-        }
-    }
 
-    // log::debug!("{:#?}", targets);
+    let primary = repo.refname_to_id("refs/remotes/origin/HEAD").ok();
 
     let recv = {
         let (send, recv): (SkimItemSender, SkimItemReceiver) = skim::prelude::unbounded();
-        for t in targets {
+        for mut t in targets {
             if args.use_author && Some(t.commit.author.as_str()) != name {
                 log::trace!("skipping commit authored by {}", t.commit.author);
                 continue;
             }
+
+            if let Some(primary) = primary {
+                // This is SLOW
+                if let Ok(x) = repo.merge_base(primary, t.commit.id) {
+                    t.is_merged = x == t.commit.id;
+                    t.is_primary = primary == t.commit.id;
+                }
+            }
+
             let item = Arc::new(SkimGitTarget::new(t, args.preview_commit_details));
             if let Err(e) = send.send(item) {
                 log::error!("unable to send item for selection: {}", e);
