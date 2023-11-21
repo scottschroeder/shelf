@@ -1,4 +1,8 @@
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use anyhow::Context;
 use skim::{prelude::SkimOptionsBuilder, Skim, SkimItem, SkimItemReceiver, SkimItemSender};
@@ -23,7 +27,13 @@ struct SkimGitTarget {
 
 impl SkimGitTarget {
     fn new(target: GitTarget, preview_details: bool) -> SkimGitTarget {
-        let ansi_str = format!("{}", DisplayLine(&target));
+        let ansi_str = format!(
+            "{}",
+            DisplayLine {
+                target: &target,
+                collapse_pushed: true,
+            }
+        );
         SkimGitTarget {
             inner: target,
             preview_details,
@@ -41,7 +51,11 @@ struct GitTarget {
     is_primary: bool,
 }
 
-struct DisplayLine<'a>(&'a GitTarget);
+struct DisplayLine<'a> {
+    target: &'a GitTarget,
+    collapse_pushed: bool,
+}
+
 const GREY: ansi_term::Color = ansi_term::Color::RGB(55, 55, 55);
 
 impl<'a> DisplayLine<'a> {
@@ -49,7 +63,7 @@ impl<'a> DisplayLine<'a> {
         ansi_term::Color::Blue
     }
     fn branch_color(&self) -> ansi_term::Color {
-        if self.0.is_primary || !self.0.is_merged {
+        if self.target.is_primary || !self.target.is_merged {
             ansi_term::Color::Yellow
         } else {
             GREY
@@ -57,9 +71,17 @@ impl<'a> DisplayLine<'a> {
     }
 }
 
+fn is_remote_of(local: &str, inspect: &str) -> bool {
+    local
+        .strip_prefix("refs/heads/")
+        .zip(inspect.strip_prefix("refs/remotes/"))
+        .and_then(|(l, r)| r.strip_suffix(l))
+        .is_some()
+}
+
 impl<'a> std::fmt::Display for DisplayLine<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let target = self.0;
+        let target = self.target;
         let commit_time = DisplayTime(target.commit.time.seconds());
         let author_str = target.commit.author.as_str();
         let author_style = self.author_color();
@@ -71,6 +93,7 @@ impl<'a> std::fmt::Display for DisplayLine<'a> {
         write!(f, "{}", commit_time)?;
 
         if !target.branches.is_empty() {
+            let mut seen: HashSet<&str> = HashSet::new();
             let branch_style = self.branch_color();
             write!(
                 f,
@@ -78,7 +101,13 @@ impl<'a> std::fmt::Display for DisplayLine<'a> {
                 branch_style.paint(BRANCH_ICON),
                 branch_style.paint("("),
             )?;
-            for (idx, branch) in target.branches.iter().enumerate() {
+            'b: for (idx, branch) in target.branches.iter().enumerate() {
+                for s in &seen {
+                    if is_remote_of(s, branch.ref_name.as_str()) {
+                        continue 'b;
+                    }
+                }
+                seen.insert(branch.ref_name.as_str());
                 if idx != 0 {
                     write!(f, ", ")?;
                 }
