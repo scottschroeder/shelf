@@ -10,7 +10,7 @@ use terminal_size::terminal_size;
 
 use crate::{
     argparse,
-    git::{GitBranch, GitCommit, GitRef},
+    git::{BranchStatus, GitBranch, GitCommit, GitRef},
 };
 
 const BRANCH_ICON: &str = "";
@@ -190,19 +190,45 @@ impl SkimItem for SkimGitTarget {
     }
 }
 
+struct TargetFilter<'a> {
+    branch_author: Option<&'a str>,
+}
+
+impl<'a> TargetFilter<'a> {
+    fn include_branch(&self, _b: &git2::Branch, c: &GitCommit) -> bool {
+        if let Some(author) = self.branch_author {
+            if c.author != author {
+                log::trace!("skipping commit authored by {}", c.author);
+                return false;
+            }
+        }
+        true
+    }
+}
+
 fn build_targets(
     args: &argparse::GitJump,
     repo: &git2::Repository,
+    filter: &TargetFilter,
 ) -> anyhow::Result<Vec<GitTarget>> {
     let mut target_map = HashMap::new();
 
-    build_branches(repo, &mut target_map).context("failed to extract branches")?;
+    build_branches(repo, &mut target_map, filter).context("failed to extract branches")?;
 
+    let primary = repo.refname_to_id("refs/remotes/origin/HEAD").ok();
     let mut results = target_map.into_values().collect::<Vec<_>>();
     results.iter_mut().for_each(|t| {
         t.branches.sort();
         if !args.show_all_branches {
             t.branches.truncate(1)
+        }
+
+        if let Some(primary) = primary {
+            // This is SLOW
+            if let Ok(x) = repo.merge_base(primary, t.commit.id) {
+                t.is_merged = x == t.commit.id;
+                t.is_primary = primary == t.commit.id;
+            }
         }
     });
     results.sort_by(|a, b| b.cmp(a));
@@ -212,6 +238,7 @@ fn build_targets(
 fn build_branches(
     repo: &git2::Repository,
     map: &mut HashMap<git2::Oid, GitTarget>,
+    filter: &TargetFilter,
 ) -> anyhow::Result<()> {
     for branch_result in repo.branches(None)? {
         let (branch, branch_type) = branch_result?;
@@ -234,11 +261,37 @@ fn build_branches(
                 continue;
             }
         };
+
+        if !filter.include_branch(&branch, &c) {
+            continue;
+        }
+
+        let mut status = BranchStatus::Unique;
+        if let Some(upstream_commit) = branch
+            .upstream()
+            .ok()
+            .and_then(|u| GitCommit::from_branch(&u).ok())
+        {
+            if upstream_commit.id == c.id {
+                status = BranchStatus::Match
+            } else if let Ok(base) = repo.merge_base(upstream_commit.id, c.id) {
+                if base == upstream_commit.id {
+                    status = BranchStatus::Ahead
+                } else {
+                    status = BranchStatus::Behind
+                }
+            } else {
+                status = BranchStatus::Behind
+            }
+        }
+
         let branch = GitBranch {
             name,
+            upstream: branch.upstream().ok().map(|u| GitRef::from(u).to_string()),
             ref_name: GitRef::from(branch).to_string(),
             branch_type,
             head,
+            status,
         };
         let entry = map.entry(c.id).or_insert(GitTarget {
             repo_path: repo.path().to_owned(),
@@ -251,6 +304,13 @@ fn build_branches(
     }
     Ok(())
 }
+
+// fn annotate_branch_relationships(repo: &git2::Repository, branches: &mut [GitBranch]) {
+//     let mut seen = HashMap::new();
+//     for b in branches {
+//         let b_oid = repo.refname_to_id(b.ref_name.as_str()).ok();
+//     }
+// }
 
 pub fn jump(args: &argparse::GitJump) -> anyhow::Result<()> {
     log::trace!("{:?}", args);
@@ -268,26 +328,15 @@ pub fn jump(args: &argparse::GitJump) -> anyhow::Result<()> {
     let user = config.get_entry("user.name").context("get user.name")?;
     let name = user.value();
 
-    let targets = build_targets(args, &repo)?;
+    let filter = TargetFilter {
+        branch_author: name.and_then(|n| args.use_author.then_some(n)),
+    };
 
-    let primary = repo.refname_to_id("refs/remotes/origin/HEAD").ok();
+    let targets = build_targets(args, &repo, &filter)?;
 
     let recv = {
         let (send, recv): (SkimItemSender, SkimItemReceiver) = skim::prelude::unbounded();
-        for mut t in targets {
-            if args.use_author && Some(t.commit.author.as_str()) != name {
-                log::trace!("skipping commit authored by {}", t.commit.author);
-                continue;
-            }
-
-            if let Some(primary) = primary {
-                // This is SLOW
-                if let Ok(x) = repo.merge_base(primary, t.commit.id) {
-                    t.is_merged = x == t.commit.id;
-                    t.is_primary = primary == t.commit.id;
-                }
-            }
-
+        for t in targets {
             let item = Arc::new(SkimGitTarget::new(t, args.preview_commit_details));
             if let Err(e) = send.send(item) {
                 log::error!("unable to send item for selection: {}", e);

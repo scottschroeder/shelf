@@ -29,12 +29,30 @@ impl<'r> From<git2::Branch<'r>> for GitRef<'r> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum BranchStatus {
+    Unique,
+    Ahead,
+    Behind,
+    Match,
+}
+
+// #[derive(Debug, Clone, PartialEq, Eq)]
+// pub(crate) struct BranchStatus {
+//     pub(crate) local_only: Option<bool>,
+//     // pub(crate) : bool,
+
+// }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct GitBranch {
     pub(crate) name: String,
     pub(crate) ref_name: String,
     pub(crate) branch_type: git2::BranchType,
     pub(crate) head: bool,
+    pub(crate) upstream: Option<String>,
+    pub(crate) status: BranchStatus,
 }
+
 impl PartialOrd for GitBranch {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
