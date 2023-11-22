@@ -17,6 +17,7 @@ const BRANCH_ICON: &str = "";
 const WINDOW_SPLIT_MIN_SIZE: u16 = 160;
 const RELATIVE_TIME_LOOKBACK_DAYS: i64 = 6;
 const RELATIVE_TIME_LOOKBACK_HOURS: i64 = 4;
+const ORIGIN_HEAD: &str = "refs/remotes/origin/HEAD";
 
 #[derive(Debug, Clone)]
 struct SkimGitTarget {
@@ -195,13 +196,21 @@ struct TargetFilter<'a> {
 }
 
 impl<'a> TargetFilter<'a> {
-    fn include_branch(&self, _b: &git2::Branch, c: &GitCommit) -> bool {
+    fn include_branch(&self, b: &git2::Branch, c: &GitCommit) -> bool {
         if let Some(author) = self.branch_author {
             if c.author != author {
                 log::trace!("skipping commit authored by {}", c.author);
                 return false;
             }
         }
+
+        if let Some(bref) = b.get().name() {
+            if bref == ORIGIN_HEAD {
+                return false;
+            }
+            // log::info!("branch ref: {:?}", bref);
+        }
+
         true
     }
 }
@@ -215,7 +224,7 @@ fn build_targets(
 
     build_branches(repo, &mut target_map, filter).context("failed to extract branches")?;
 
-    let primary = repo.refname_to_id("refs/remotes/origin/HEAD").ok();
+    let primary = repo.refname_to_id(ORIGIN_HEAD).ok();
     let mut results = target_map.into_values().collect::<Vec<_>>();
     results.iter_mut().for_each(|t| {
         t.branches.sort();
