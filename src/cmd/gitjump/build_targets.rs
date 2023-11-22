@@ -1,7 +1,7 @@
 use anyhow::Context;
 use std::collections::HashMap;
 
-use crate::git::{GitCommit, BranchStatus, GitBranch, GitRef};
+use crate::git::{BranchStatus, GitBranch, GitCommit, GitRef};
 
 use super::{GitTarget, ORIGIN_HEAD};
 
@@ -122,4 +122,70 @@ fn build_branches(
         entry.branches.push(branch);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use anyhow::Context;
+    use tempfile::{tempdir, TempDir};
+
+    use super::*;
+
+    fn create_test_repo(
+        origin_path: impl AsRef<std::path::Path>,
+    ) -> Result<git2::Repository, anyhow::Error> {
+        let origin_path = origin_path.as_ref();
+        std::fs::create_dir_all(origin_path)?;
+
+        let origin_repo = git2::Repository::init(origin_path).context("init repo")?;
+        std::fs::write(origin_path.join("README.md"), "Hello World!")?;
+
+        let mut index = origin_repo.index()?;
+        index.add_path(std::path::Path::new("README.md"))?;
+        index.write().context("write index")?;
+
+        let oid = index.write_tree().context("write tree")?;
+        let signature =
+            git2::Signature::now("author1", "author1@example.com").context("create signature")?;
+        // let signature = origin_repo.signature().context("signature")?;
+
+        // let parent_commit = find_last_commit(&origin_repo).context("find last commit")?;
+        origin_repo
+            .commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                "Initial commit",
+                &origin_repo.find_tree(oid)?,
+                &[],
+            )
+            .context("commit")?;
+
+        Ok(origin_repo)
+    }
+
+    #[test]
+    fn read_repo() -> Result<(), anyhow::Error> {
+        let dir = tempdir()?;
+        let origin_path = dir.path().join("remote/origin/myrepo.git");
+
+        let r = create_test_repo(origin_path).context("create repo")?;
+
+        // let p = dir.into_path();
+        // anyhow::bail!("repo {:?}", p);
+
+        Ok(())
+    }
+
+    fn find_last_commit(repo: &git2::Repository) -> Result<git2::Commit, anyhow::Error> {
+        let obj = repo
+            .head()
+            .context("get repo head")?
+            .resolve()
+            .context("resolve head")?
+            .peel(git2::ObjectType::Commit)
+            .context("peel oid to commit")?;
+        obj.into_commit()
+            .map_err(|_| anyhow::anyhow!("couldn't find commit"))
+    }
 }
