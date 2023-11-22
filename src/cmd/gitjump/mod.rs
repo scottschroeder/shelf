@@ -48,7 +48,7 @@ impl SkimGitTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct GitTarget {
+pub(crate) struct GitTarget {
     repo_path: std::path::PathBuf,
     commit: GitCommit,
     branches: Vec<GitBranch>,
