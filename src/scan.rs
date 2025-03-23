@@ -45,7 +45,7 @@ impl Iterator for GitRepoWalker {
                     return Some(entry.into_path());
                 }
                 Some(Err(e)) => {
-                    log::error!("could not read `{:?}`: {}", e.path(), e);
+                    log::debug!("could not read `{:?}`: {}", e.path(), e);
                 }
                 None => return None,
             };
