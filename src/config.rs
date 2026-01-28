@@ -3,8 +3,6 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-const QUALIFIER: &str = "io";
-const ORGANIZATION: &str = "scottschroeder";
 const APP: &str = "shelf";
 const CONFIG_NAME: &str = "shelf.yml";
 
@@ -35,10 +33,29 @@ pub fn load_config(config_override: Option<&Path>) -> anyhow::Result<ShelfConfig
     if let Some(config_path) = config_override {
         read_config(config_path)
     } else {
-        let dirs = directories::ProjectDirs::from(QUALIFIER, ORGANIZATION, APP).unwrap();
-        let config_path = dirs.config_dir().join(CONFIG_NAME);
+        let config_path = get_xdg_config_path()?;
         read_config(&config_path)
     }
+}
+
+fn get_xdg_config_path() -> anyhow::Result<PathBuf> {
+    if let Ok(xdg_home) = std::env::var("XDG_CONFIG_HOME") {
+        let xdg_home = xdg_home.trim();
+        if !xdg_home.is_empty() {
+            return Ok(PathBuf::from(xdg_home).join(APP).join(CONFIG_NAME));
+        }
+    }
+
+    let home = std::env::var("HOME").context("HOME is not set and XDG_CONFIG_HOME is empty")?;
+    let home = home.trim();
+    if home.is_empty() {
+        anyhow::bail!("HOME is empty and XDG_CONFIG_HOME is not set");
+    }
+
+    Ok(PathBuf::from(home)
+        .join(".config")
+        .join(APP)
+        .join(CONFIG_NAME))
 }
 
 #[cfg(test)]
