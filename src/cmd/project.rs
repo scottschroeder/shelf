@@ -14,7 +14,6 @@ use crate::{
 mod project_dir;
 
 type ProjectQueue = VecDeque<(ProjectGroup, Option<Arc<Project>>)>;
-const DEFAULT_TMUX_WINDOW_NAME: &str = "zsh";
 
 pub fn dirs(args: &argparse::ProjectDirs) -> anyhow::Result<()> {
     let mut groups = Vec::new();
@@ -132,7 +131,12 @@ fn rename_tmux_default_window(
     if let Some(tmux) = get_tmux() {
         match tmux_rename {
             argparse::TmuxRename::DefaultOnly => {
-                if tmux.count_tmux_panes()? > 1 && tmux.get_tmux_name()? != DEFAULT_TMUX_WINDOW_NAME
+                let default_name = get_default_tmux_window_name();
+                let current_name = tmux.get_tmux_name()?;
+                if tmux.count_tmux_panes()? > 1
+                    && default_name
+                        .as_deref()
+                        .is_none_or(|name| current_name != name)
                 {
                     return Ok(());
                 }
@@ -143,4 +147,16 @@ fn rename_tmux_default_window(
         tmux.set_tmux_current_window_name(name)?;
     }
     Ok(())
+}
+
+fn get_default_tmux_window_name() -> Option<String> {
+    let shell = std::env::var("SHELL").ok()?;
+    let shell = shell.trim();
+    if shell.is_empty() {
+        return None;
+    }
+    std::path::Path::new(shell)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.to_string())
 }
