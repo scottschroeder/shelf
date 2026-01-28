@@ -20,7 +20,7 @@ pub struct ProjectExtractor<'a> {
 }
 
 impl<'a> ProjectExtractor<'a> {
-    pub fn new(config: &ProjectGroup) -> anyhow::Result<ProjectExtractor> {
+    pub fn new(config: &ProjectGroup) -> anyhow::Result<ProjectExtractor<'_>> {
         let extract_regex = regex::Regex::new(&config.extract)?;
         Ok(ProjectExtractor {
             config,
@@ -51,7 +51,7 @@ impl<'a> ProjectExtractor<'a> {
 }
 
 impl SkimItem for Project {
-    fn text(&self) -> std::borrow::Cow<str> {
+    fn text(&self) -> std::borrow::Cow<'_, str> {
         Cow::Owned(format!("[{}] {}", self.typename, self.title))
     }
 }

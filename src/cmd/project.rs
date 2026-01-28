@@ -117,7 +117,7 @@ fn select_and_return_first(recv: SkimItemReceiver) -> Option<Project> {
     } else {
         result
             .selected_items
-            .get(0)?
+            .first()?
             .as_any()
             .downcast_ref::<Project>()
             .cloned()

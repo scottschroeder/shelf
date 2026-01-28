@@ -14,7 +14,7 @@ pub fn get_tmux() -> Option<TmuxHandle> {
 impl TmuxHandle {
     pub fn get_tmux_name(&self) -> anyhow::Result<String> {
         let output = Command::new("tmux")
-            .args(&["display-message", "-p", "#W"])
+            .args(["display-message", "-p", "#W"])
             .stdout(std::process::Stdio::piped())
             .spawn()
             .context("could not spawn tmux")?
@@ -26,7 +26,7 @@ impl TmuxHandle {
     }
     pub fn get_tmux_number(&self) -> anyhow::Result<u16> {
         let output = Command::new("tmux")
-            .args(&["display-message", "-p", "#I"])
+            .args(["display-message", "-p", "#I"])
             .stdout(std::process::Stdio::piped())
             .spawn()
             .context("could not spawn tmux")?
@@ -42,7 +42,7 @@ impl TmuxHandle {
     }
     pub fn count_tmux_panes(&self) -> anyhow::Result<usize> {
         let output = Command::new("tmux")
-            .args(&["list-panes"])
+            .args(["list-panes"])
             .stdout(std::process::Stdio::piped())
             .spawn()
             .context("could not spawn tmux")?
@@ -61,7 +61,7 @@ impl TmuxHandle {
 
     fn set_tmux_window_name(&self, window_number: u16, name: &str) -> anyhow::Result<()> {
         Command::new("tmux")
-            .args(&["rename-window", "-t"])
+            .args(["rename-window", "-t"])
             .arg(window_number.to_string())
             .arg(name)
             .spawn()

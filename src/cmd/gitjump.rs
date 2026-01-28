@@ -168,7 +168,7 @@ impl Ord for GitTarget {
 }
 
 impl SkimItem for SkimGitTarget {
-    fn text(&self) -> std::borrow::Cow<str> {
+    fn text(&self) -> std::borrow::Cow<'_, str> {
         Cow::Owned(format!("{:?}", self.inner))
     }
     fn preview(&self, _context: skim::PreviewContext) -> skim::ItemPreview {
@@ -310,7 +310,7 @@ pub fn jump(args: &argparse::GitJump) -> anyhow::Result<()> {
 }
 
 fn checkout_target(repo: &git2::Repository, target: &GitTarget) -> anyhow::Result<()> {
-    if let Some(b) = target.branches.get(0) {
+    if let Some(b) = target.branches.first() {
         log::debug!("checkout branch: {:?}", b.name);
         let branch = repo
             .find_branch(&b.name, b.branch_type)
@@ -364,7 +364,7 @@ fn select_and_return_first(args: &argparse::GitJump, recv: SkimItemReceiver) -> 
     } else {
         result
             .selected_items
-            .get(0)?
+            .first()?
             .as_any()
             .downcast_ref::<SkimGitTarget>()
             .map(|s| s.inner.clone())
