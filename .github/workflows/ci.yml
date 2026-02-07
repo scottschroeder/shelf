@@ -1,0 +1,32 @@
+name: CI
+
+on:
+    pull_request:
+    push:
+        branches:
+            - master
+
+jobs:
+    fmt:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: ./.github/actions/setup
+            - name: Check formatting
+              run: make fmt-check
+
+    lint:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: ./.github/actions/setup
+            - name: Run clippy
+              run: make lint
+
+    test:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: ./.github/actions/setup
+            - name: Run tests
+              run: make test
