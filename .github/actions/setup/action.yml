@@ -9,6 +9,10 @@ runs:
           with:
               components: rustfmt, clippy
 
+        - name: Install nightly rustfmt
+          shell: bash
+          run: rustup toolchain install nightly --component rustfmt --profile minimal
+
         - name: Cache Rust artifacts
           uses: Swatinem/rust-cache@v2
           with:
