@@ -18,8 +18,18 @@ pub struct ProjectGroup {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ManualDirectory {
+    pub path: PathBuf,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ShelfConfig {
+    #[serde(default)]
     pub projects: Vec<ProjectGroup>,
+    #[serde(default)]
+    pub directories: Vec<ManualDirectory>,
 }
 
 fn read_config(config_path: &Path) -> anyhow::Result<ShelfConfig> {
@@ -75,5 +85,42 @@ mod tests {
 
         assert_eq!(config.projects.len(), 1);
         assert_eq!(config.projects[0].title, "Local");
+        assert_eq!(config.directories.len(), 0);
+    }
+
+    #[test]
+    fn loadconfig_with_manual_directories() {
+        let conf = r###"
+            projects:
+              - root: ~/src/local/
+                title: "Local"
+                extract: src/local/(.*)
+            directories:
+              - path: ~/src/local/scratch
+                label: "Scratch"
+              - path: ~/src/local/playground
+        "###;
+
+        let config: ShelfConfig = serde_yaml::from_str(conf).unwrap();
+
+        assert_eq!(config.projects.len(), 1);
+        assert_eq!(config.directories.len(), 2);
+        assert_eq!(config.directories[0].label.as_deref(), Some("Scratch"));
+        assert!(config.directories[1].label.is_none());
+    }
+
+    #[test]
+    fn loadconfig_directories_only() {
+        let conf = r###"
+            directories:
+              - path: ~/src/local/scratch
+                label: "Scratch"
+        "###;
+
+        let config: ShelfConfig = serde_yaml::from_str(conf).unwrap();
+
+        assert_eq!(config.projects.len(), 0);
+        assert_eq!(config.directories.len(), 1);
+        assert_eq!(config.directories[0].label.as_deref(), Some("Scratch"));
     }
 }

@@ -26,6 +26,10 @@ projects:
   - title: tools
     root: /Users/alex/dev/tools
     extract: dev/tools/(.*)
+directories:
+  - path: /Users/alex/src/work/scratch
+    label: Scratch
+  - path: /Users/alex/src/work/notes
 ```
 
 Fields:

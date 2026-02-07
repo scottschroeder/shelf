@@ -6,7 +6,7 @@ use skim::{prelude::SkimOptionsBuilder, Skim, SkimItemReceiver, SkimItemSender};
 use self::project_dir::ProjectExtractor;
 use crate::{
     argparse::{self, TmuxRename},
-    config::{load_config, ProjectGroup},
+    config::{load_config, ManualDirectory, ProjectGroup},
     scan::scan_git_repos,
     tmux::get_tmux,
 };
@@ -27,12 +27,12 @@ pub fn dirs(args: &argparse::ProjectDirs) -> anyhow::Result<()> {
             recurse: args.git_recurse,
         });
     }
-    let project = search(groups)?;
+    let project = search(groups, Vec::new())?;
     update_tmux_and_display_results(&project, args.tmux_rename.as_ref())
 }
 pub fn preset(args: &argparse::ProjectPreset) -> anyhow::Result<()> {
     let config = load_config(args.config.as_deref())?;
-    let project = search(config.projects)?;
+    let project = search(config.projects, config.directories)?;
     update_tmux_and_display_results(&project, args.tmux_rename.as_ref())
 }
 
@@ -47,8 +47,9 @@ fn update_tmux_and_display_results(
     Ok(())
 }
 
-fn search(groups: Vec<ProjectGroup>) -> anyhow::Result<Project> {
+fn search(groups: Vec<ProjectGroup>, directories: Vec<ManualDirectory>) -> anyhow::Result<Project> {
     log::debug!("groups: {:#?}", groups);
+    log::debug!("manual directories: {:#?}", directories);
 
     let mut queue: ProjectQueue = VecDeque::new();
     for root in groups {
@@ -56,7 +57,14 @@ fn search(groups: Vec<ProjectGroup>) -> anyhow::Result<Project> {
     }
 
     let (send, recv): (SkimItemSender, SkimItemReceiver) = skim::prelude::unbounded();
-    std::thread::spawn(move || scan_groups(queue, send));
+    std::thread::spawn(move || {
+        if let Err(err) = send_manual_directories(&send, &directories) {
+            log::error!("failed to send manual directories: {}", err);
+        }
+        if let Err(err) = scan_groups(queue, send) {
+            log::error!("failed to scan project groups: {}", err);
+        }
+    });
     let resp = select_and_return_first(recv);
 
     if let Some(proj) = resp {
@@ -64,6 +72,26 @@ fn search(groups: Vec<ProjectGroup>) -> anyhow::Result<Project> {
     }
 
     anyhow::bail!("no item was selected");
+}
+
+fn send_manual_directories(
+    send: &SkimItemSender,
+    directories: &[ManualDirectory],
+) -> anyhow::Result<()> {
+    for manual_directory in directories {
+        let project = Arc::new(Project::from_manual_directory(
+            manual_directory.path.clone(),
+            manual_directory.label.clone(),
+        ));
+        if let Err(e) = send.send(project) {
+            anyhow::bail!(
+                "channel send failure for `{:?}`: {}",
+                manual_directory.path,
+                e
+            );
+        }
+    }
+    Ok(())
 }
 
 fn scan_groups(mut queue: ProjectQueue, send: SkimItemSender) -> anyhow::Result<()> {

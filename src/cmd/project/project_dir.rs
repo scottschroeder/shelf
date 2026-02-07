@@ -55,3 +55,20 @@ impl SkimItem for Project {
         Cow::Owned(format!("[{}] {}", self.typename, self.title))
     }
 }
+
+impl Project {
+    pub fn from_manual_directory(path: PathBuf, label: Option<String>) -> Self {
+        let title = label.unwrap_or_else(|| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.to_string())
+                .unwrap_or_else(|| path.display().to_string())
+        });
+
+        Self {
+            path,
+            typename: "config".to_string(),
+            title,
+        }
+    }
+}
