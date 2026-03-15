@@ -10,6 +10,7 @@ mod cmd {
 mod config;
 mod git;
 mod scan;
+mod skim_style;
 mod tmux;
 mod worktree;
 

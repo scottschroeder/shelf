@@ -9,7 +9,7 @@ use std::{
 use anyhow::Context;
 use skim::{prelude::SkimOptionsBuilder, Skim, SkimItem, SkimItemReceiver, SkimItemSender};
 
-use crate::{argparse, worktree};
+use crate::{argparse, skim_style, worktree};
 
 pub fn create(args: &argparse::WorktreeCreate) -> anyhow::Result<()> {
     let cwd = std::env::current_dir().context("failed to read current directory")?;
@@ -60,24 +60,39 @@ impl CleanupCandidate {
         let dirty = is_worktree_dirty(&details.path);
 
         let mut tags = Vec::new();
+        let mut styled_tags = Vec::new();
         if details.detached {
-            tags.push("(detached)".to_string());
+            let tag = "(detached)".to_string();
+            tags.push(tag.clone());
+            styled_tags.push(skim_style::detached_style().paint(tag).to_string());
         } else if let Some(branch) = &branch {
-            tags.push(format!("(branch {})", branch));
+            let tag = format!("(branch {})", branch);
+            tags.push(tag.clone());
+            styled_tags.push(skim_style::branch_style().paint(tag).to_string());
         }
         if let Some(upstream) = &upstream {
-            tags.push(format!("(upstream {})", upstream));
+            let tag = format!("(upstream {})", upstream);
+            tags.push(tag.clone());
+            styled_tags.push(skim_style::upstream_style().paint(tag).to_string());
         }
         if dirty {
-            tags.push("(dirty)".to_string());
+            let tag = "(dirty)".to_string();
+            tags.push(tag.clone());
+            styled_tags.push(skim_style::dirty_style().paint(tag).to_string());
         } else {
-            tags.push("(clean)".to_string());
+            let tag = "(clean)".to_string();
+            tags.push(tag.clone());
+            styled_tags.push(skim_style::clean_style().paint(tag).to_string());
         }
         if details.locked {
-            tags.push("(locked)".to_string());
+            let tag = "(locked)".to_string();
+            tags.push(tag.clone());
+            styled_tags.push(skim_style::locked_style().paint(tag).to_string());
         }
         if details.prunable {
-            tags.push("(prunable)".to_string());
+            let tag = "(prunable)".to_string();
+            tags.push(tag.clone());
+            styled_tags.push(skim_style::prunable_style().paint(tag).to_string());
         }
 
         let mut text = if tags.is_empty() {
@@ -85,9 +100,29 @@ impl CleanupCandidate {
         } else {
             format!("[{}] {}", details.name, tags.join(" "))
         };
+
+        let mut styled_text = if styled_tags.is_empty() {
+            skim_style::worktree_name_style(dirty)
+                .paint(format!("[{}]", details.name))
+                .to_string()
+        } else {
+            format!(
+                "{} {}",
+                skim_style::worktree_name_style(dirty).paint(format!("[{}]", details.name)),
+                styled_tags.join(" ")
+            )
+        };
+
         if let Some(commit_message) = &commit_message {
             text.push(' ');
             text.push_str(commit_message);
+
+            styled_text.push(' ');
+            styled_text.push_str(
+                &skim_style::commit_message_style()
+                    .paint(commit_message)
+                    .to_string(),
+            );
         }
 
         CleanupCandidate {
@@ -100,7 +135,7 @@ impl CleanupCandidate {
             detached: details.detached,
             locked: details.locked,
             prunable: details.prunable,
-            display_str: skim::AnsiString::parse(&text),
+            display_str: skim::AnsiString::parse(&styled_text),
         }
     }
 }

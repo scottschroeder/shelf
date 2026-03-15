@@ -6,6 +6,18 @@ use serde::{Deserialize, Serialize};
 const APP: &str = "shelf";
 const CONFIG_NAME: &str = "shelf.yml";
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum NamedColor {
+    Blue,
+    Cyan,
+    Green,
+    Yellow,
+    Red,
+    Magenta,
+    White,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProjectGroup {
     pub root: PathBuf,
@@ -13,6 +25,8 @@ pub struct ProjectGroup {
     pub exclude: Vec<String>,
     pub title: String,
     pub extract: String,
+    #[serde(default)]
+    pub color: Option<NamedColor>,
     #[serde(default)]
     pub recurse: bool,
 }
@@ -87,12 +101,14 @@ mod tests {
               - root: ~/src/local/
                 title: "Local"
                 extract: src/local/(.*)
+                color: cyan
         "###;
 
         let config: ShelfConfig = serde_yaml::from_str(conf).unwrap();
 
         assert_eq!(config.projects.len(), 1);
         assert_eq!(config.projects[0].title, "Local");
+        assert_eq!(config.projects[0].color, Some(NamedColor::Cyan));
         assert_eq!(config.directories.len(), 0);
     }
 
@@ -103,6 +119,7 @@ mod tests {
               - root: ~/src/local/
                 title: "Local"
                 extract: src/local/(.*)
+                color: green
             directories:
               - path: ~/src/local/scratch
                 label: "Scratch"
@@ -112,6 +129,7 @@ mod tests {
         let config: ShelfConfig = serde_yaml::from_str(conf).unwrap();
 
         assert_eq!(config.projects.len(), 1);
+        assert_eq!(config.projects[0].color, Some(NamedColor::Green));
         assert_eq!(config.directories.len(), 2);
         assert_eq!(config.directories[0].label.as_deref(), Some("Scratch"));
         assert!(config.directories[1].label.is_none());
@@ -132,6 +150,21 @@ mod tests {
         assert_eq!(config.directories.len(), 1);
         assert_eq!(config.directories[0].label.as_deref(), Some("Scratch"));
         assert!(config.worktrees.root.is_none());
+    }
+
+    #[test]
+    fn loadconfig_rejects_unknown_project_color() {
+        let conf = r###"
+            projects:
+              - root: ~/src/local/
+                title: "Local"
+                extract: src/local/(.*)
+                color: not-a-color
+        "###;
+
+        let err =
+            serde_yaml::from_str::<ShelfConfig>(conf).expect_err("expected color parse error");
+        assert!(err.to_string().contains("unknown variant"));
     }
 
     #[test]

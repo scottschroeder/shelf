@@ -16,6 +16,7 @@ projects:
   - title: work
     root: /Users/alex/src/work
     extract: src/work/(.*)
+    color: cyan
     recurse: true
   - title: oss
     root: /Users/alex/src/oss
@@ -39,6 +40,7 @@ Per Project Fields:
 - `title`: label shown in the picker
 - `root`: directory to scan for git repositories
 - `extract`: regex used to derive the project name from the path
+- `color`: optional project tag color (`blue`, `cyan`, `green`, `yellow`, `red`, `magenta`, `white`)
 - `exclude`: list of regexes to skip paths (optional)
 - `recurse`: continue scanning inside discovered repos (optional)
 

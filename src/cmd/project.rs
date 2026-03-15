@@ -25,6 +25,7 @@ pub fn dirs(args: &argparse::ProjectDirs) -> anyhow::Result<()> {
             exclude: Vec::new(),
             title: format!("{}", path_text),
             extract: format!("{}/(.*)", path_text),
+            color: None,
             recurse: args.git_recurse,
         });
     }
@@ -101,6 +102,7 @@ fn scan_groups(mut queue: ProjectQueue, send: SkimItemSender) -> anyhow::Result<
         exclude: Vec::new(),
         title: "unknown".to_string(),
         extract: "(.*)".to_string(),
+        color: None,
         recurse: false,
     };
     let default_extract = ProjectExtractor::new(&default_config).expect("bad config");
@@ -196,6 +198,7 @@ fn send_linked_worktree_projects(
             typename: proj.typename.clone(),
             title: proj.title.clone(),
             worktree: Some(project_dir::WorktreeProjectMetadata { name: linked.name }),
+            project_color: proj.project_color,
         };
         send_project_if_new(send, sent_paths, worktree_project)?;
     }
