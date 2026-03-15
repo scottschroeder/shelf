@@ -8,7 +8,7 @@ CURRENT_DIR = $(shell pwd)
 VERSION=$(shell grep -Em1 "^version" Cargo.toml | sed -r 's/.*"(.*)".*/\1/')
 NAME := shelf
 
-.PHONY: all pre-commit build_debug clean version fmt fmt-check lint fix
+.PHONY: all fmt-check test test_unit test_local test_arch test_ubuntu test_platforms lint
 
 all: pre-commit
 pre-commit: fix fmt test

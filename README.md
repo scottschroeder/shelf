@@ -30,15 +30,20 @@ directories:
   - path: /Users/alex/src/work/scratch
     label: Scratch
   - path: /Users/alex/src/work/notes
+worktrees:
+  root: /Users/alex/src/worktrees
 ```
 
-Fields:
+Per Project Fields:
 
 - `title`: label shown in the picker
 - `root`: directory to scan for git repositories
 - `extract`: regex used to derive the project name from the path
 - `exclude`: list of regexes to skip paths (optional)
 - `recurse`: continue scanning inside discovered repos (optional)
+
+Worktree Fields:
+- `root`: root folder used by `shelf worktree create` (required for `worktree create`)
 
 
 ## Shell Aliases

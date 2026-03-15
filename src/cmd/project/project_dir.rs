@@ -8,10 +8,16 @@ use skim::SkimItem;
 use crate::config::ProjectGroup;
 
 #[derive(Debug, Clone)]
+pub struct WorktreeProjectMetadata {
+    pub name: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct Project {
     pub path: PathBuf,
     pub typename: String,
     pub title: String,
+    pub worktree: Option<WorktreeProjectMetadata>,
 }
 
 pub struct ProjectExtractor<'a> {
@@ -46,13 +52,21 @@ impl<'a> ProjectExtractor<'a> {
             path: dir.to_path_buf(),
             typename,
             title,
+            worktree: None,
         })
     }
 }
 
 impl SkimItem for Project {
     fn text(&self) -> std::borrow::Cow<'_, str> {
-        Cow::Owned(format!("[{}] {}", self.typename, self.title))
+        if let Some(worktree) = &self.worktree {
+            Cow::Owned(format!(
+                "[{}] {} (worktree {})",
+                self.typename, self.title, worktree.name
+            ))
+        } else {
+            Cow::Owned(format!("[{}] {}", self.typename, self.title))
+        }
     }
 }
 
@@ -69,6 +83,12 @@ impl Project {
             path,
             typename: "config".to_string(),
             title,
+            worktree: None,
         }
+    }
+
+    pub fn with_worktree_metadata(mut self, metadata: Option<WorktreeProjectMetadata>) -> Self {
+        self.worktree = metadata;
+        self
     }
 }

@@ -21,6 +21,9 @@ pub enum SubCommand {
     /// Scan for project dirs
     #[clap(subcommand)]
     Project(ProjectPicker),
+    /// Manage git worktrees
+    #[clap(subcommand)]
+    Worktree(WorktreePicker),
     /// Git Jump
     GitJump(GitJump),
 }
@@ -29,6 +32,11 @@ pub enum SubCommand {
 pub enum ProjectPicker {
     Dirs(ProjectDirs),
     Preset(ProjectPreset),
+}
+
+#[derive(Parser, Debug)]
+pub enum WorktreePicker {
+    Create(WorktreeCreate),
 }
 
 #[derive(Parser, Debug)]
@@ -79,3 +87,12 @@ pub struct GitJump {
 
 #[derive(Parser, Debug)]
 pub struct Test {}
+
+#[derive(Parser, Debug)]
+pub struct WorktreeCreate {
+    /// New branch and worktree name
+    pub name: String,
+    /// Override config path
+    #[clap(long)]
+    pub config: Option<PathBuf>,
+}

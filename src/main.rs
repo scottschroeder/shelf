@@ -5,11 +5,13 @@ mod argparse;
 mod cmd {
     pub mod gitjump;
     pub mod project;
+    pub mod worktree;
 }
 mod config;
 mod git;
 mod scan;
 mod tmux;
+mod worktree;
 
 fn main() -> anyhow::Result<()> {
     color_backtrace::install();
@@ -21,6 +23,9 @@ fn main() -> anyhow::Result<()> {
         argparse::SubCommand::Project(cmd) => match cmd {
             argparse::ProjectPicker::Dirs(args) => cmd::project::dirs(args),
             argparse::ProjectPicker::Preset(args) => cmd::project::preset(args),
+        },
+        argparse::SubCommand::Worktree(cmd) => match cmd {
+            argparse::WorktreePicker::Create(args) => cmd::worktree::create(args),
         },
         argparse::SubCommand::Test(_) => {
             if let Some(tmux) = get_tmux() {

@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::{collections::HashSet, collections::VecDeque, sync::Arc};
 
 use project_dir::Project;
 use skim::{prelude::SkimOptionsBuilder, Skim, SkimItemReceiver, SkimItemSender};
@@ -9,6 +9,7 @@ use crate::{
     config::{load_config, ManualDirectory, ProjectGroup},
     scan::scan_git_repos,
     tmux::get_tmux,
+    worktree,
 };
 
 mod project_dir;
@@ -103,6 +104,7 @@ fn scan_groups(mut queue: ProjectQueue, send: SkimItemSender) -> anyhow::Result<
         recurse: false,
     };
     let default_extract = ProjectExtractor::new(&default_config).expect("bad config");
+    let mut sent_paths: HashSet<std::path::PathBuf> = HashSet::new();
 
     while let Some((group_config, parent)) = queue.pop_front() {
         let project_extract = ProjectExtractor::new(&group_config).expect("bad config");
@@ -117,17 +119,85 @@ fn scan_groups(mut queue: ProjectQueue, send: SkimItemSender) -> anyhow::Result<
                         .extract(&repo_path, parent_proj)
                         .expect("default extraction config must return project")
                 });
-            let proj = Arc::new(proj);
-            if let Err(e) = send.send(proj.clone()) {
-                anyhow::bail!("channel send failure for `{:?}`: {}", proj.path, e);
-            };
+
+            let (proj, is_linked_worktree) = annotate_worktree_metadata(&repo_path, proj);
+            send_project_if_new(&send, &mut sent_paths, proj.clone())?;
+            if !is_linked_worktree {
+                send_linked_worktree_projects(&send, &mut sent_paths, &repo_path, &proj)?;
+            }
+
             // println!("{:?}", x);
             if group_config.recurse {
                 let mut new_group = group_config.clone();
                 new_group.root = proj.path.clone();
-                queue.push_back((new_group, Some(proj)));
+                queue.push_back((new_group, Some(Arc::new(proj))));
             }
         }
+    }
+    Ok(())
+}
+
+fn annotate_worktree_metadata(repo_path: &std::path::Path, proj: Project) -> (Project, bool) {
+    match worktree::inspect_repo_worktree(repo_path) {
+        Ok(Some(info)) => (
+            proj.with_worktree_metadata(Some(project_dir::WorktreeProjectMetadata {
+                name: info.worktree_name,
+            })),
+            true,
+        ),
+        Ok(None) => (proj, false),
+        Err(err) => {
+            log::debug!(
+                "could not inspect worktree metadata for `{:?}`: {}",
+                repo_path,
+                err
+            );
+            (proj, false)
+        }
+    }
+}
+
+fn send_project_if_new(
+    send: &SkimItemSender,
+    sent_paths: &mut HashSet<std::path::PathBuf>,
+    proj: Project,
+) -> anyhow::Result<()> {
+    if !sent_paths.insert(proj.path.clone()) {
+        return Ok(());
+    }
+    let proj = Arc::new(proj);
+    if let Err(e) = send.send(proj.clone()) {
+        anyhow::bail!("channel send failure for `{:?}`: {}", proj.path, e);
+    }
+    Ok(())
+}
+
+fn send_linked_worktree_projects(
+    send: &SkimItemSender,
+    sent_paths: &mut HashSet<std::path::PathBuf>,
+    repo_path: &std::path::Path,
+    proj: &Project,
+) -> anyhow::Result<()> {
+    let linked_worktrees = match worktree::list_linked_worktrees(repo_path) {
+        Ok(worktrees) => worktrees,
+        Err(err) => {
+            log::debug!(
+                "could not list linked worktrees for `{:?}`: {}",
+                repo_path,
+                err
+            );
+            Vec::new()
+        }
+    };
+
+    for linked in linked_worktrees {
+        let worktree_project = Project {
+            path: linked.path,
+            typename: proj.typename.clone(),
+            title: proj.title.clone(),
+            worktree: Some(project_dir::WorktreeProjectMetadata { name: linked.name }),
+        };
+        send_project_if_new(send, sent_paths, worktree_project)?;
     }
     Ok(())
 }

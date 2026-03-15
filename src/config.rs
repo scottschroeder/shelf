@@ -24,12 +24,20 @@ pub struct ManualDirectory {
     pub label: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct WorktreeConfig {
+    #[serde(default)]
+    pub root: Option<PathBuf>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ShelfConfig {
     #[serde(default)]
     pub projects: Vec<ProjectGroup>,
     #[serde(default)]
     pub directories: Vec<ManualDirectory>,
+    #[serde(default)]
+    pub worktrees: WorktreeConfig,
 }
 
 fn read_config(config_path: &Path) -> anyhow::Result<ShelfConfig> {
@@ -107,6 +115,7 @@ mod tests {
         assert_eq!(config.directories.len(), 2);
         assert_eq!(config.directories[0].label.as_deref(), Some("Scratch"));
         assert!(config.directories[1].label.is_none());
+        assert!(config.worktrees.root.is_none());
     }
 
     #[test]
@@ -122,5 +131,18 @@ mod tests {
         assert_eq!(config.projects.len(), 0);
         assert_eq!(config.directories.len(), 1);
         assert_eq!(config.directories[0].label.as_deref(), Some("Scratch"));
+        assert!(config.worktrees.root.is_none());
+    }
+
+    #[test]
+    fn loadconfig_with_worktree_root() {
+        let conf = r###"
+            worktrees:
+              root: /tmp/worktrees
+        "###;
+
+        let config: ShelfConfig = serde_yaml::from_str(conf).unwrap();
+
+        assert_eq!(config.worktrees.root, Some(PathBuf::from("/tmp/worktrees")));
     }
 }
