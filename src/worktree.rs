@@ -21,6 +21,16 @@ pub(crate) struct LinkedWorktree {
     pub(crate) name: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LinkedWorktreeDetails {
+    pub(crate) path: PathBuf,
+    pub(crate) name: String,
+    pub(crate) branch_ref: Option<String>,
+    pub(crate) detached: bool,
+    pub(crate) locked: bool,
+    pub(crate) prunable: bool,
+}
+
 pub(crate) fn resolve_worktree_root(config_override: Option<&Path>) -> anyhow::Result<PathBuf> {
     let config = load_config(config_override)?;
     if let Some(root) = config.worktrees.root {
@@ -65,6 +75,19 @@ pub(crate) fn resolve_main_repo_path(repo_path: &Path) -> anyhow::Result<PathBuf
 }
 
 pub(crate) fn list_linked_worktrees(main_repo_path: &Path) -> anyhow::Result<Vec<LinkedWorktree>> {
+    let entries = list_linked_worktree_details(main_repo_path)?;
+    Ok(entries
+        .into_iter()
+        .map(|entry| LinkedWorktree {
+            path: entry.path,
+            name: entry.name,
+        })
+        .collect())
+}
+
+pub(crate) fn list_linked_worktree_details(
+    main_repo_path: &Path,
+) -> anyhow::Result<Vec<LinkedWorktreeDetails>> {
     let output = Command::new("git")
         .arg("-C")
         .arg(main_repo_path)
@@ -166,22 +189,61 @@ fn slug_repo_path(main_repo_path: &Path) -> String {
     format!("{}-{:x}", slug, hash)
 }
 
-fn parse_worktree_list_porcelain(text: &str) -> Vec<LinkedWorktree> {
+fn parse_worktree_list_porcelain(text: &str) -> Vec<LinkedWorktreeDetails> {
     text.split("\n\n")
-        .flat_map(|block| block.lines())
-        .filter_map(|line| {
-            line.strip_prefix("worktree ")
-                .map(str::trim)
-                .filter(|p| !p.is_empty())
-                .map(PathBuf::from)
+        .filter_map(|block| {
+            let mut path: Option<PathBuf> = None;
+            let mut branch_ref = None;
+            let mut detached = false;
+            let mut locked = false;
+            let mut prunable = false;
+
+            for line in block.lines() {
+                if let Some(raw_path) = line.strip_prefix("worktree ").map(str::trim) {
+                    if !raw_path.is_empty() {
+                        path = Some(PathBuf::from(raw_path));
+                    }
+                    continue;
+                }
+
+                if let Some(raw_branch) = line.strip_prefix("branch ").map(str::trim) {
+                    if !raw_branch.is_empty() {
+                        branch_ref = Some(raw_branch.to_string());
+                    }
+                    continue;
+                }
+
+                if line.starts_with("detached") {
+                    detached = true;
+                    continue;
+                }
+
+                if line.starts_with("locked") {
+                    locked = true;
+                    continue;
+                }
+
+                if line.starts_with("prunable") {
+                    prunable = true;
+                }
+            }
+
+            Some((path?, branch_ref, detached, locked, prunable))
         })
-        .map(|p| {
+        .map(|(p, branch_ref, detached, locked, prunable)| {
             let name = p
                 .file_name()
                 .and_then(|n| n.to_str())
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| p.display().to_string());
-            LinkedWorktree { path: p, name }
+            LinkedWorktreeDetails {
+                path: p,
+                name,
+                branch_ref,
+                detached,
+                locked,
+                prunable,
+            }
         })
         .collect()
 }
@@ -253,11 +315,28 @@ mod tests {
         assert_eq!(parsed.len(), 2);
         assert_eq!(
             parsed[1],
-            LinkedWorktree {
+            LinkedWorktreeDetails {
                 path: PathBuf::from("/home/alice/src/worktrees/github/org/repo/example"),
                 name: "example".to_string(),
+                branch_ref: Some("refs/heads/example".to_string()),
+                detached: false,
+                locked: false,
+                prunable: false,
             }
         );
+    }
+
+    #[test]
+    fn parse_worktree_list_porcelain_extracts_detached_locked_prunable() {
+        let text = "worktree /tmp/repo\nHEAD aaa\ndetached\nlocked reason\nprunable gone\n\n";
+
+        let parsed = parse_worktree_list_porcelain(text);
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].branch_ref, None);
+        assert!(parsed[0].detached);
+        assert!(parsed[0].locked);
+        assert!(parsed[0].prunable);
     }
 
     #[test]

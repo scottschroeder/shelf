@@ -45,6 +45,17 @@ Per Project Fields:
 Worktree Fields:
 - `root`: root folder used by `shelf worktree create` (required for `worktree create`)
 
+Worktree create examples:
+- `shelf worktree create handle-foo`: create worktree and branch `handle-foo`
+- `shelf worktree create handle-foo --branch alex/feature-x`: create worktree `handle-foo` with branch `alex/feature-x`
+- `shelf worktree create handle-foo --detach`: create detached worktree without creating a branch
+- `shelf worktree create handle-foo origin/main`: create branch `handle-foo` from `origin/main`
+
+Worktree cleanup:
+- `shelf worktree cleanup`: select one or more linked worktrees with skim, then remove them
+- Cleanup entries show branch/upstream information when available, and flags like `dirty`, `detached`, `locked`, or `prunable`
+- Cleanup uses force removal so dirty worktrees are still removable after explicit selection
+
 
 ## Shell Aliases
 Open a fuzzy finder, pick one of your projects, and `cd` into that directory.

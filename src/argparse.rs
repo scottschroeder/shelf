@@ -37,6 +37,7 @@ pub enum ProjectPicker {
 #[derive(Parser, Debug)]
 pub enum WorktreePicker {
     Create(WorktreeCreate),
+    Cleanup(WorktreeCleanup),
 }
 
 #[derive(Parser, Debug)]
@@ -90,8 +91,23 @@ pub struct Test {}
 
 #[derive(Parser, Debug)]
 pub struct WorktreeCreate {
-    /// New branch and worktree name
+    /// Worktree directory name
     pub name: String,
+    /// Create or checkout this branch name in the new worktree
+    #[clap(short = 'b', long, conflicts_with = "detach")]
+    pub branch: Option<String>,
+    /// Detach HEAD in the new worktree
+    #[clap(short = 'd', long, conflicts_with = "branch")]
+    pub detach: bool,
+    /// Optional commit-ish (branch, tag, or commit)
+    pub commitish: Option<String>,
+    /// Override config path
+    #[clap(long)]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Parser, Debug)]
+pub struct WorktreeCleanup {
     /// Override config path
     #[clap(long)]
     pub config: Option<PathBuf>,
