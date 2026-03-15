@@ -223,6 +223,8 @@ fn run_git_worktree_add(
         .arg(main_repo)
         .args(&git_args)
         .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
         .status()
         .with_context(|| {
             format!(
@@ -299,6 +301,8 @@ fn run_git_worktree_remove(main_repo: &Path, destination: &Path) -> anyhow::Resu
         .arg(main_repo)
         .args(&git_args)
         .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
         .status()
         .with_context(|| {
             format!(
