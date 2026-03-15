@@ -43,10 +43,19 @@ fn update_tmux_and_display_results(
     tmux_rename: Option<&TmuxRename>,
 ) -> anyhow::Result<()> {
     if let Some(tmux_rename) = tmux_rename {
-        rename_tmux_default_window(&project.title, tmux_rename)?;
+        let window_name = tmux_window_name(project);
+        rename_tmux_default_window(&window_name, tmux_rename)?;
     }
     println!("{}", project.path.display());
     Ok(())
+}
+
+fn tmux_window_name(project: &Project) -> String {
+    if let Some(worktree) = &project.worktree {
+        format!("{}({})", project.title, worktree.name)
+    } else {
+        project.title.clone()
+    }
 }
 
 fn search(groups: Vec<ProjectGroup>, directories: Vec<ManualDirectory>) -> anyhow::Result<Project> {
@@ -260,4 +269,41 @@ fn get_default_tmux_window_name() -> Option<String> {
         .file_name()
         .and_then(|name| name.to_str())
         .map(|name| name.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::cmd::project::project_dir::WorktreeProjectMetadata;
+
+    use super::{tmux_window_name, Project};
+
+    #[test]
+    fn tmux_window_name_uses_project_title_for_normal_repo() {
+        let project = Project {
+            path: PathBuf::from("/tmp/demo"),
+            typename: "work".to_string(),
+            title: "demo".to_string(),
+            worktree: None,
+            project_color: None,
+        };
+
+        assert_eq!(tmux_window_name(&project), "demo");
+    }
+
+    #[test]
+    fn tmux_window_name_includes_worktree_suffix_for_worktrees() {
+        let project = Project {
+            path: PathBuf::from("/tmp/demo-worktree"),
+            typename: "work".to_string(),
+            title: "demo".to_string(),
+            worktree: Some(WorktreeProjectMetadata {
+                name: "feature-123".to_string(),
+            }),
+            project_color: None,
+        };
+
+        assert_eq!(tmux_window_name(&project), "demo(feature-123)");
+    }
 }
