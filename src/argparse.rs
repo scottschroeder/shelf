@@ -38,6 +38,8 @@ pub enum ProjectPicker {
 pub enum WorktreePicker {
     Create(WorktreeCreate),
     Cleanup(WorktreeCleanup),
+    /// Remove worktrees across all repos under the worktree root
+    CleanupAll(WorktreeCleanupAll),
 }
 
 #[derive(Parser, Debug)]
@@ -108,6 +110,13 @@ pub struct WorktreeCreate {
 
 #[derive(Parser, Debug)]
 pub struct WorktreeCleanup {
+    /// Override config path
+    #[clap(long)]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Parser, Debug)]
+pub struct WorktreeCleanupAll {
     /// Override config path
     #[clap(long)]
     pub config: Option<PathBuf>,

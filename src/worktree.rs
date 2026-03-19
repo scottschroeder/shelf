@@ -159,6 +159,77 @@ fn parse_worktree_gitdir(gitdir: &Path) -> Option<(PathBuf, String)> {
     Some((main_repo, worktree_name))
 }
 
+pub(crate) fn discover_all_worktrees_from_root(
+    worktree_root: &Path,
+) -> anyhow::Result<Vec<(PathBuf, Vec<LinkedWorktreeDetails>)>> {
+    let entries = std::fs::read_dir(worktree_root).with_context(|| {
+        format!(
+            "failed to read worktree root directory `{}`",
+            worktree_root.display()
+        )
+    })?;
+
+    let mut results = Vec::new();
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(err) => {
+                log::warn!("failed to read entry in worktree root: {}", err);
+                continue;
+            }
+        };
+
+        let slug_dir = entry.path();
+        if !slug_dir.is_dir() {
+            continue;
+        }
+
+        // Find the main repo by inspecting any child worktree
+        let main_repo = match find_main_repo_from_slug_dir(&slug_dir) {
+            Some(repo) => repo,
+            None => {
+                log::warn!(
+                    "could not resolve main repo from slug dir `{}`",
+                    slug_dir.display()
+                );
+                continue;
+            }
+        };
+
+        match list_linked_worktree_details(&main_repo) {
+            Ok(worktrees) if !worktrees.is_empty() => {
+                results.push((main_repo, worktrees));
+            }
+            Ok(_) => {}
+            Err(err) => {
+                log::warn!(
+                    "failed to list worktrees for `{}`: {}",
+                    main_repo.display(),
+                    err
+                );
+            }
+        }
+    }
+
+    Ok(results)
+}
+
+fn find_main_repo_from_slug_dir(slug_dir: &Path) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(slug_dir).ok()?;
+    for entry in entries {
+        let entry = entry.ok()?;
+        let child = entry.path();
+        if !child.is_dir() {
+            continue;
+        }
+        if let Ok(Some(info)) = inspect_repo_worktree(&child) {
+            return Some(info.main_repo_path);
+        }
+    }
+    None
+}
+
 fn slug_repo_path(main_repo_path: &Path) -> String {
     let raw = main_repo_path.display().to_string();
     let mut slug = String::with_capacity(raw.len());

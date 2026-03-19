@@ -9,7 +9,7 @@ use std::{
 use anyhow::Context;
 use skim::{prelude::SkimOptionsBuilder, Skim, SkimItem, SkimItemReceiver, SkimItemSender};
 
-use crate::{argparse, skim_style, worktree};
+use crate::{argparse, config, skim_style, worktree};
 
 pub fn create(args: &argparse::WorktreeCreate) -> anyhow::Result<()> {
     let cwd = std::env::current_dir().context("failed to read current directory")?;
@@ -30,6 +30,10 @@ pub fn create(args: &argparse::WorktreeCreate) -> anyhow::Result<()> {
 
     run_git_worktree_add(&main_repo, &destination, args)?;
 
+    if let Ok(cfg) = config::load_config(args.config.as_deref()) {
+        symlink_setup_paths(&main_repo, &destination, &cfg.worktrees.setup);
+    }
+
     println!("{}", destination.display());
     Ok(())
 }
@@ -37,6 +41,7 @@ pub fn create(args: &argparse::WorktreeCreate) -> anyhow::Result<()> {
 #[derive(Debug, Clone)]
 struct CleanupCandidate {
     path: std::path::PathBuf,
+    main_repo: std::path::PathBuf,
     name: String,
     branch: Option<String>,
     upstream: Option<String>,
@@ -49,7 +54,18 @@ struct CleanupCandidate {
 }
 
 impl CleanupCandidate {
-    fn from_details(details: worktree::LinkedWorktreeDetails) -> CleanupCandidate {
+    fn from_details(
+        details: worktree::LinkedWorktreeDetails,
+        main_repo: &Path,
+    ) -> CleanupCandidate {
+        Self::from_details_with_repo(details, None, main_repo)
+    }
+
+    fn from_details_with_repo(
+        details: worktree::LinkedWorktreeDetails,
+        repo_label: Option<&str>,
+        main_repo: &Path,
+    ) -> CleanupCandidate {
         let branch = details
             .branch_ref
             .as_deref()
@@ -58,6 +74,11 @@ impl CleanupCandidate {
         let upstream = find_upstream_branch(&details.path, branch.as_deref());
         let commit_message = find_head_commit_message(&details.path);
         let dirty = is_worktree_dirty(&details.path);
+
+        let display_name = match repo_label {
+            Some(label) => format!("{}/{}", label, details.name),
+            None => details.name.clone(),
+        };
 
         let mut tags = Vec::new();
         let mut styled_tags = Vec::new();
@@ -95,28 +116,19 @@ impl CleanupCandidate {
             styled_tags.push(skim_style::prunable_style().paint(tag).to_string());
         }
 
-        let mut text = if tags.is_empty() {
-            format!("[{}]", details.name)
-        } else {
-            format!("[{}] {}", details.name, tags.join(" "))
-        };
-
         let mut styled_text = if styled_tags.is_empty() {
             skim_style::worktree_name_style(dirty)
-                .paint(format!("[{}]", details.name))
+                .paint(format!("[{}]", display_name))
                 .to_string()
         } else {
             format!(
                 "{} {}",
-                skim_style::worktree_name_style(dirty).paint(format!("[{}]", details.name)),
+                skim_style::worktree_name_style(dirty).paint(format!("[{}]", display_name)),
                 styled_tags.join(" ")
             )
         };
 
         if let Some(commit_message) = &commit_message {
-            text.push(' ');
-            text.push_str(commit_message);
-
             styled_text.push(' ');
             styled_text.push_str(
                 &skim_style::commit_message_style()
@@ -127,7 +139,8 @@ impl CleanupCandidate {
 
         CleanupCandidate {
             path: details.path,
-            name: details.name,
+            main_repo: main_repo.to_path_buf(),
+            name: display_name,
             branch,
             upstream,
             commit_message,
@@ -170,6 +183,56 @@ impl SkimItem for CleanupCandidate {
     fn display<'a>(&'a self, _context: skim::DisplayContext<'a>) -> skim::AnsiString<'a> {
         self.display_str.clone()
     }
+}
+
+pub fn cleanup_all(args: &argparse::WorktreeCleanupAll) -> anyhow::Result<()> {
+    let worktree_root = worktree::resolve_worktree_root(args.config.as_deref())?;
+    let all_repos = worktree::discover_all_worktrees_from_root(&worktree_root)?;
+
+    let mut candidates: Vec<Arc<CleanupCandidate>> = Vec::new();
+    for (main_repo, linked_worktrees) in all_repos {
+        let repo_label = main_repo
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        for details in linked_worktrees {
+            candidates.push(Arc::new(CleanupCandidate::from_details_with_repo(
+                details,
+                Some(&repo_label),
+                &main_repo,
+            )));
+        }
+    }
+
+    if candidates.is_empty() {
+        anyhow::bail!("no linked worktrees found under worktree root");
+    }
+
+    let selected = select_worktrees_to_cleanup(candidates);
+    if selected.is_empty() {
+        anyhow::bail!("no worktrees selected for cleanup");
+    }
+
+    let mut failures = Vec::new();
+    for selected_worktree in &selected {
+        if let Err(err) =
+            run_git_worktree_remove(&selected_worktree.main_repo, &selected_worktree.path)
+        {
+            failures.push(format!("{}: {}", selected_worktree.path.display(), err));
+            continue;
+        }
+        println!("{}", selected_worktree.path.display());
+    }
+
+    if !failures.is_empty() {
+        anyhow::bail!(
+            "failed to remove some selected worktrees:\n{}",
+            failures.join("\n")
+        );
+    }
+
+    Ok(())
 }
 
 pub fn cleanup(_args: &argparse::WorktreeCleanup) -> anyhow::Result<()> {
@@ -226,6 +289,37 @@ fn ensure_destination_missing(destination: &Path) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+fn symlink_setup_paths(main_repo: &Path, destination: &Path, setup: &[String]) {
+    for relative in setup {
+        let source = main_repo.join(relative);
+        if !source.exists() {
+            continue;
+        }
+        let target = destination.join(relative);
+        if target.exists() || target.symlink_metadata().is_ok() {
+            continue;
+        }
+        if let Some(parent) = target.parent() {
+            if let Err(err) = std::fs::create_dir_all(parent) {
+                log::warn!(
+                    "worktree setup: failed to create parent dirs for `{}`: {}",
+                    target.display(),
+                    err
+                );
+                continue;
+            }
+        }
+        if let Err(err) = std::os::unix::fs::symlink(&source, &target) {
+            log::warn!(
+                "worktree setup: failed to symlink `{}` -> `{}`: {}",
+                target.display(),
+                source.display(),
+                err
+            );
+        }
+    }
 }
 
 fn build_worktree_add_args(args: &argparse::WorktreeCreate, destination: &Path) -> Vec<OsString> {
@@ -288,7 +382,7 @@ fn build_cleanup_candidates(
         if details.path == current_workdir {
             continue;
         }
-        candidates.push(Arc::new(CleanupCandidate::from_details(details)));
+        candidates.push(Arc::new(CleanupCandidate::from_details(details, main_repo)));
     }
 
     Ok(candidates)

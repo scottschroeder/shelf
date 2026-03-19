@@ -42,6 +42,8 @@ pub struct ManualDirectory {
 pub struct WorktreeConfig {
     #[serde(default)]
     pub root: Option<PathBuf>,
+    #[serde(default)]
+    pub setup: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

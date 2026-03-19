@@ -28,6 +28,7 @@ fn main() -> anyhow::Result<()> {
         argparse::SubCommand::Worktree(cmd) => match cmd {
             argparse::WorktreePicker::Create(args) => cmd::worktree::create(args),
             argparse::WorktreePicker::Cleanup(args) => cmd::worktree::cleanup(args),
+            argparse::WorktreePicker::CleanupAll(args) => cmd::worktree::cleanup_all(args),
         },
         argparse::SubCommand::Test(_) => {
             if let Some(tmux) = get_tmux() {

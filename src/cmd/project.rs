@@ -1,4 +1,7 @@
-use std::{collections::HashSet, collections::VecDeque, sync::Arc};
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::Arc,
+};
 
 use project_dir::Project;
 use skim::{prelude::SkimOptionsBuilder, Skim, SkimItemReceiver, SkimItemSender};
@@ -275,9 +278,8 @@ fn get_default_tmux_window_name() -> Option<String> {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::cmd::project::project_dir::WorktreeProjectMetadata;
-
     use super::{tmux_window_name, Project};
+    use crate::cmd::project::project_dir::WorktreeProjectMetadata;
 
     #[test]
     fn tmux_window_name_uses_project_title_for_normal_repo() {
