@@ -92,17 +92,17 @@ fn send_manual_directories(
     send: &SkimItemSender,
     directories: &[ManualDirectory],
 ) -> anyhow::Result<()> {
+    let mut sent_paths: HashSet<std::path::PathBuf> = HashSet::new();
     for manual_directory in directories {
-        let project = Arc::new(Project::from_manual_directory(
+        let project = Project::from_manual_directory(
             manual_directory.path.clone(),
             manual_directory.label.clone(),
-        ));
-        if let Err(e) = send.send(project) {
-            anyhow::bail!(
-                "channel send failure for `{:?}`: {}",
-                manual_directory.path,
-                e
-            );
+        );
+        let (project, is_linked_worktree) =
+            annotate_worktree_metadata(&manual_directory.path, project);
+        send_project_if_new(send, &mut sent_paths, project.clone())?;
+        if !is_linked_worktree {
+            send_linked_worktree_projects(send, &mut sent_paths, &manual_directory.path, &project)?;
         }
     }
     Ok(())
