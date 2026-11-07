@@ -58,14 +58,26 @@ pub fn interactive(args: &argparse::WorktreeInteractive) -> anyhow::Result<()> {
     }
 }
 
-pub fn name(_args: &argparse::WorktreeName) -> anyhow::Result<()> {
-    let (repo_workdir, _) = resolve_repo_from_cwd()?;
-    match worktree::inspect_repo_worktree(&repo_workdir)? {
-        Some(info) => {
-            println!("{}", info.worktree_name);
-            Ok(())
+pub fn name(_args: &argparse::WorktreeName) -> ! {
+    // Expected-condition failure stays quiet: one plain stderr line, empty
+    // stdout, nonzero exit — the anyhow path would call it an unrecoverable
+    // failure through the top-level error handler.
+    let result = (|| -> anyhow::Result<()> {
+        let (repo_workdir, _) = resolve_repo_from_cwd()?;
+        match worktree::inspect_repo_worktree(&repo_workdir)? {
+            Some(info) => {
+                println!("{}", info.worktree_name);
+                Ok(())
+            }
+            None => anyhow::bail!("not inside a linked worktree"),
         }
-        None => anyhow::bail!("not inside a linked worktree"),
+    })();
+    match result {
+        Ok(()) => std::process::exit(0),
+        Err(err) => {
+            eprintln!("{}", err);
+            std::process::exit(1);
+        }
     }
 }
 
