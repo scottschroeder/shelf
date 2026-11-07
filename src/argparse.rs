@@ -37,9 +37,23 @@ pub enum ProjectPicker {
 #[derive(Parser, Debug)]
 pub enum WorktreePicker {
     Create(WorktreeCreate),
+    /// Jump to a linked worktree via a picker, or create one
+    Interactive(WorktreeInteractive),
     Cleanup(WorktreeCleanup),
     /// Remove worktrees across all repos under the worktree root
     CleanupAll(WorktreeCleanupAll),
+}
+
+#[derive(Parser, Debug)]
+pub struct WorktreeInteractive {
+    /// Jump to the linked worktree with this name (created if missing)
+    pub name: Option<String>,
+    /// Create or checkout this branch name in the new worktree (default: detached)
+    #[clap(short = 'b', long)]
+    pub branch: Option<String>,
+    /// Override config path
+    #[clap(long)]
+    pub config: Option<PathBuf>,
 }
 
 #[derive(Parser, Debug)]

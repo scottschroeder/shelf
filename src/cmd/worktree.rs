@@ -1,42 +1,129 @@
 use std::{
     borrow::Cow,
     ffi::OsString,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::Arc,
 };
 
 use anyhow::Context;
 use serde::Serialize;
-use skim::{prelude::SkimOptionsBuilder, Skim, SkimItem, SkimItemReceiver, SkimItemSender};
+use skim::{
+    prelude::{Key, SkimOptionsBuilder},
+    Skim, SkimItem, SkimItemReceiver, SkimItemSender,
+};
 
 use crate::{argparse, config, skim_style, worktree};
 
 pub fn create(args: &argparse::WorktreeCreate) -> anyhow::Result<()> {
+    let (_, main_repo) = resolve_repo_from_cwd()?;
+    let branch = if args.detach {
+        None
+    } else {
+        Some(args.branch.as_deref().unwrap_or(&args.name))
+    };
+    let destination = add_worktree(
+        &main_repo,
+        &args.name,
+        branch,
+        args.detach,
+        args.commitish.as_deref(),
+        args.config.as_deref(),
+    )?;
+    println!("{}", destination.display());
+    Ok(())
+}
+
+pub fn interactive(args: &argparse::WorktreeInteractive) -> anyhow::Result<()> {
+    let (_, main_repo) = resolve_repo_from_cwd()?;
+
+    if let Some(name) = args.name.as_deref() {
+        return jump_or_create(&main_repo, name, args);
+    }
+
+    let details = worktree::list_linked_worktree_details(&main_repo)?;
+    if details.is_empty() {
+        anyhow::bail!("no linked worktrees available");
+    }
+
+    let candidates: Vec<Arc<CleanupCandidate>> = details
+        .into_iter()
+        .map(|detail| Arc::new(CleanupCandidate::from_details(detail, &main_repo)))
+        .collect();
+
+    match select_worktree_or_query(candidates) {
+        Selection::Worktree(candidate) => {
+            println!("{}", candidate.path.display());
+            Ok(())
+        }
+        Selection::Create(query) => jump_or_create(&main_repo, &query, args),
+        Selection::Abort => anyhow::bail!("no worktree selected"),
+    }
+}
+
+fn jump_or_create(
+    main_repo: &Path,
+    name: &str,
+    args: &argparse::WorktreeInteractive,
+) -> anyhow::Result<()> {
+    let name = name.trim();
+    anyhow::ensure!(!name.is_empty(), "worktree name is empty");
+    let details = worktree::list_linked_worktree_details(main_repo)?;
+
+    if let Some(found) = details.iter().find(|detail| detail.name == name) {
+        println!("{}", found.path.display());
+        return Ok(());
+    }
+
+    let branch = args.branch.as_deref();
+    let destination = add_worktree(
+        main_repo,
+        name,
+        branch,
+        branch.is_none(),
+        None,
+        args.config.as_deref(),
+    )?;
+    println!("{}", destination.display());
+    Ok(())
+}
+
+/// Resolve the current directory to `(repo_workdir, main_repo)`, where
+/// `main_repo` is the primary checkout when run from inside a linked worktree.
+fn resolve_repo_from_cwd() -> anyhow::Result<(PathBuf, PathBuf)> {
     let cwd = std::env::current_dir().context("failed to read current directory")?;
     let repo = git2::Repository::discover(&cwd).context("git")?;
     let repo_workdir = repo
         .workdir()
-        .context("bare repositories are not supported")?;
-
-    let main_repo = worktree::resolve_main_repo_path(repo_workdir)
+        .context("bare repositories are not supported")?
+        .to_path_buf();
+    let main_repo = worktree::resolve_main_repo_path(&repo_workdir)
         .context("failed to resolve main repository path")?;
+    Ok((repo_workdir, main_repo))
+}
 
-    let worktree_root = worktree::resolve_worktree_root(args.config.as_deref())?;
-    let destination = worktree::build_worktree_destination(&main_repo, &args.name, &worktree_root)
+fn add_worktree(
+    main_repo: &Path,
+    name: &str,
+    branch: Option<&str>,
+    detach: bool,
+    commitish: Option<&str>,
+    config_path: Option<&Path>,
+) -> anyhow::Result<PathBuf> {
+    let worktree_root = worktree::resolve_worktree_root(config_path)?;
+    let destination = worktree::build_worktree_destination(main_repo, name, &worktree_root)
         .context("failed to build worktree destination")?;
 
     ensure_destination_parent_exists(&destination)?;
     ensure_destination_missing(&destination)?;
 
-    run_git_worktree_add(&main_repo, &destination, args)?;
+    run_git_worktree_add(main_repo, &destination, branch, detach, commitish)?;
 
-    if let Ok(cfg) = config::load_config(args.config.as_deref()) {
-        symlink_setup_paths(&main_repo, &destination, &cfg.worktrees.setup);
+    if let Ok(cfg) = config::load_config(config_path) {
+        symlink_setup_paths(main_repo, &destination, &cfg.worktrees.setup);
     }
 
-    println!("{}", destination.display());
-    Ok(())
+    Ok(destination)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -255,15 +342,10 @@ pub fn cleanup_all(args: &argparse::WorktreeCleanupAll) -> anyhow::Result<()> {
 }
 
 pub fn cleanup(_args: &argparse::WorktreeCleanup) -> anyhow::Result<()> {
-    let cwd = std::env::current_dir().context("failed to read current directory")?;
-    let repo = git2::Repository::discover(&cwd).context("git")?;
-    let repo_workdir = repo
-        .workdir()
-        .context("bare repositories are not supported")?;
-    let main_repo = worktree::resolve_main_repo_path(repo_workdir)
-        .context("failed to resolve main repository path")?;
+    let (repo_workdir, main_repo) = resolve_repo_from_cwd()?;
 
-    let candidates = build_cleanup_candidates(&main_repo, repo_workdir)?;
+    let candidates = build_cleanup_candidates(&main_repo, &repo_workdir)?;
+
     if candidates.is_empty() {
         anyhow::bail!("no linked worktrees available to clean up");
     }
@@ -341,31 +423,40 @@ fn symlink_setup_paths(main_repo: &Path, destination: &Path, setup: &[String]) {
     }
 }
 
-fn build_worktree_add_args(args: &argparse::WorktreeCreate, destination: &Path) -> Vec<OsString> {
+fn build_worktree_add_args(
+    branch: Option<&str>,
+    detach: bool,
+    commitish: Option<&str>,
+    destination: &Path,
+) -> anyhow::Result<Vec<OsString>> {
     let mut git_args: Vec<OsString> = vec!["worktree".into(), "add".into()];
 
-    if args.detach {
+    if detach {
         git_args.push("--detach".into());
     } else {
+        let branch =
+            branch.context("branch name required when not creating a detached worktree")?;
         git_args.push("-b".into());
-        git_args.push(args.branch.as_deref().unwrap_or(&args.name).into());
+        git_args.push(branch.into());
     }
 
     git_args.push(destination.as_os_str().to_os_string());
 
-    if let Some(commitish) = &args.commitish {
+    if let Some(commitish) = commitish {
         git_args.push(commitish.into());
     }
 
-    git_args
+    Ok(git_args)
 }
 
 fn run_git_worktree_add(
     main_repo: &Path,
     destination: &Path,
-    args: &argparse::WorktreeCreate,
+    branch: Option<&str>,
+    detach: bool,
+    commitish: Option<&str>,
 ) -> anyhow::Result<()> {
-    let git_args = build_worktree_add_args(args, destination);
+    let git_args = build_worktree_add_args(branch, detach, commitish, destination)?;
     let status = Command::new("git")
         .arg("-C")
         .arg(main_repo)
@@ -431,6 +522,55 @@ fn select_worktrees_to_cleanup(candidates: Vec<Arc<CleanupCandidate>>) -> Vec<Cl
         .iter()
         .filter_map(|item| item.as_any().downcast_ref::<CleanupCandidate>().cloned())
         .collect()
+}
+
+enum Selection {
+    Worktree(CleanupCandidate),
+    Create(String),
+    Abort,
+}
+
+/// Single-select picker: choosing a candidate switches to it; pressing Enter
+/// on a query that matched nothing creates a worktree named after the query.
+fn select_worktree_or_query(candidates: Vec<Arc<CleanupCandidate>>) -> Selection {
+    let options = SkimOptionsBuilder::default().multi(false).build().unwrap();
+
+    let (send, recv): (SkimItemSender, SkimItemReceiver) = skim::prelude::unbounded();
+    for candidate in candidates {
+        if let Err(err) = send.send(candidate) {
+            log::error!("unable to send worktree candidate: {}", err);
+            break;
+        }
+    }
+    drop(send);
+
+    let Some(result) = Skim::run_with(&options, Some(recv)) else {
+        return Selection::Abort;
+    };
+    if result.is_abort {
+        return Selection::Abort;
+    }
+
+    if let Some(candidate) = result
+        .selected_items
+        .first()
+        .and_then(|item| item.as_any().downcast_ref::<CleanupCandidate>())
+    {
+        return Selection::Worktree(candidate.clone());
+    }
+
+    if result.final_key == Key::Enter {
+        let query = result.query.trim();
+        if valid_worktree_name(query) {
+            return Selection::Create(query.to_string());
+        }
+    }
+
+    Selection::Abort
+}
+
+fn valid_worktree_name(name: &str) -> bool {
+    !name.is_empty() && !name.contains('/') && !name.contains('\0') && name != "." && name != ".."
 }
 
 fn build_worktree_remove_args(destination: &Path) -> Vec<OsString> {
@@ -528,23 +668,7 @@ fn find_head_commit_message(path: &Path) -> Option<String> {
 mod tests {
     use std::path::Path;
 
-    use super::{build_worktree_add_args, build_worktree_remove_args};
-    use crate::argparse::WorktreeCreate;
-
-    fn mk_args(
-        name: &str,
-        branch: Option<&str>,
-        detach: bool,
-        commitish: Option<&str>,
-    ) -> WorktreeCreate {
-        WorktreeCreate {
-            name: name.to_string(),
-            branch: branch.map(ToString::to_string),
-            detach,
-            commitish: commitish.map(ToString::to_string),
-            config: None,
-        }
-    }
+    use super::{build_worktree_add_args, build_worktree_remove_args, valid_worktree_name};
 
     fn to_strings(args: Vec<std::ffi::OsString>) -> Vec<String> {
         args.into_iter()
@@ -552,43 +676,40 @@ mod tests {
             .collect()
     }
 
-    #[test]
-    fn defaults_to_branch_named_after_worktree() {
-        let args = mk_args("handle-foo", None, false, None);
-        let got = to_strings(build_worktree_add_args(&args, Path::new("/tmp/wt")));
+    fn add_args(branch: Option<&str>, detach: bool, commitish: Option<&str>) -> Vec<String> {
+        to_strings(
+            build_worktree_add_args(branch, detach, commitish, Path::new("/tmp/wt")).unwrap(),
+        )
+    }
 
-        assert_eq!(got, vec!["worktree", "add", "-b", "handle-foo", "/tmp/wt"]);
+    #[test]
+    fn creates_branch_named_after_worktree() {
+        assert_eq!(
+            add_args(Some("handle-foo"), false, None),
+            vec!["worktree", "add", "-b", "handle-foo", "/tmp/wt"]
+        );
     }
 
     #[test]
     fn supports_distinct_branch_name() {
-        let args = mk_args("handle-foo", Some("alice/feature-x"), false, None);
-        let got = to_strings(build_worktree_add_args(&args, Path::new("/tmp/wt")));
-
         assert_eq!(
-            got,
+            add_args(Some("alice/feature-x"), false, None),
             vec!["worktree", "add", "-b", "alice/feature-x", "/tmp/wt"]
         );
     }
 
     #[test]
     fn supports_detached_creation_with_commitish() {
-        let args = mk_args("handle-foo", None, true, Some("origin/main"));
-        let got = to_strings(build_worktree_add_args(&args, Path::new("/tmp/wt")));
-
         assert_eq!(
-            got,
+            add_args(None, true, Some("origin/main")),
             vec!["worktree", "add", "--detach", "/tmp/wt", "origin/main"]
         );
     }
 
     #[test]
     fn supports_branch_creation_from_commitish() {
-        let args = mk_args("handle-foo", None, false, Some("origin/main"));
-        let got = to_strings(build_worktree_add_args(&args, Path::new("/tmp/wt")));
-
         assert_eq!(
-            got,
+            add_args(Some("handle-foo"), false, Some("origin/main")),
             vec![
                 "worktree",
                 "add",
@@ -601,9 +722,39 @@ mod tests {
     }
 
     #[test]
+    fn interactive_defaults_to_detached_creation() {
+        assert_eq!(
+            add_args(None, true, None),
+            vec!["worktree", "add", "--detach", "/tmp/wt"]
+        );
+    }
+
+    #[test]
+    fn rejects_branchless_non_detached_creation() {
+        assert!(build_worktree_add_args(None, false, None, Path::new("/tmp/wt")).is_err());
+    }
+
+    #[test]
     fn cleanup_removes_worktree_with_force() {
         let got = to_strings(build_worktree_remove_args(Path::new("/tmp/wt")));
 
         assert_eq!(got, vec!["worktree", "remove", "--force", "/tmp/wt"]);
+    }
+
+    #[test]
+    fn accepts_plain_worktree_names() {
+        assert!(valid_worktree_name("foo"));
+        assert!(valid_worktree_name("handle-foo_2.bar"));
+    }
+
+    #[test]
+    fn rejects_unusable_worktree_names() {
+        for name in ["", "foo/bar", ".", "..", "foo\0bar"] {
+            assert!(
+                !valid_worktree_name(name),
+                "expected `{}` to be rejected",
+                name
+            );
+        }
     }
 }

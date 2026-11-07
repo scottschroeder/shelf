@@ -53,6 +53,14 @@ Worktree create examples:
 - `shelf worktree create handle-foo --detach`: create detached worktree without creating a branch
 - `shelf worktree create handle-foo origin/main`: create branch `handle-foo` from `origin/main`
 
+
+Worktree interactive:
+- `shelf worktree interactive`: pick any linked worktree of the current repo and print its path
+- `shelf worktree interactive foo`: print the path of linked worktree `foo`, or create it (detached by default) if it does not exist
+- `shelf worktree interactive foo --branch alex/feature-x`: create `foo` with branch `alex/feature-x` instead of detaching
+- Inside the picker, pressing Enter on a query that matches nothing creates a worktree named after the query
+- Print-a-path contract matches `shelf project preset`, so shell integration is e.g. `worktree() { cd "$(shelf worktree interactive "$@")"; }`
+
 Worktree cleanup:
 - `shelf worktree cleanup`: select one or more linked worktrees with skim, then remove them
 - Cleanup entries show branch/upstream information when available, and flags like `dirty`, `detached`, `locked`, or `prunable`
