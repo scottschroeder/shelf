@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::Context;
+use serde::Serialize;
 use skim::{prelude::SkimOptionsBuilder, Skim, SkimItem, SkimItemReceiver, SkimItemSender};
 
 use crate::{argparse, config, skim_style, worktree};
@@ -38,7 +39,7 @@ pub fn create(args: &argparse::WorktreeCreate) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct CleanupCandidate {
     path: std::path::PathBuf,
     main_repo: std::path::PathBuf,
@@ -50,6 +51,7 @@ struct CleanupCandidate {
     detached: bool,
     locked: bool,
     prunable: bool,
+    #[serde(skip)]
     display_str: skim::AnsiString<'static>,
 }
 
@@ -203,6 +205,23 @@ pub fn cleanup_all(args: &argparse::WorktreeCleanupAll) -> anyhow::Result<()> {
                 &main_repo,
             )));
         }
+    }
+
+    if args.json {
+        let stdout = std::io::stdout();
+        let mut output = stdout.lock();
+        let entries: Vec<_> = candidates.iter().map(Arc::as_ref).collect();
+        serde_json::to_writer_pretty(&mut output, &entries)?;
+        use std::io::Write;
+        writeln!(output)?;
+        return Ok(());
+    }
+
+    if args.list {
+        for candidate in &candidates {
+            println!("{} — {}", candidate.text(), candidate.path.display());
+        }
+        return Ok(());
     }
 
     if candidates.is_empty() {

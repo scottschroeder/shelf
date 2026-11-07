@@ -22,5 +22,6 @@ ansi_term = "0.12.1"
 git2 = "0.15.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
+serde_json = "1.0"
 directories = "4.0.1"
 chrono = "0.4.23"

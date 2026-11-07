@@ -120,4 +120,10 @@ pub struct WorktreeCleanupAll {
     /// Override config path
     #[clap(long)]
     pub config: Option<PathBuf>,
+    /// List worktrees instead of opening the cleanup picker
+    #[clap(long)]
+    pub list: bool,
+    /// List worktrees as JSON (also skips the cleanup picker)
+    #[clap(long)]
+    pub json: bool,
 }
