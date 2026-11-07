@@ -42,9 +42,6 @@ pub fn interactive(args: &argparse::WorktreeInteractive) -> anyhow::Result<()> {
     }
 
     let details = worktree::list_linked_worktree_details(&main_repo)?;
-    if details.is_empty() {
-        anyhow::bail!("no linked worktrees available");
-    }
 
     let candidates: Vec<Arc<CleanupCandidate>> = details
         .into_iter()
@@ -530,10 +527,16 @@ enum Selection {
     Abort,
 }
 
-/// Single-select picker: choosing a candidate switches to it; pressing Enter
-/// on a query that matched nothing creates a worktree named after the query.
+/// Single-select picker: choosing a candidate switches to it; Enter on a query
+/// that matched nothing creates a worktree named after the query. alt-enter
+/// always creates from the query, even when the query matches something —
+/// candidate text is verbose enough that plain queries rarely miss.
 fn select_worktree_or_query(candidates: Vec<Arc<CleanupCandidate>>) -> Selection {
-    let options = SkimOptionsBuilder::default().multi(false).build().unwrap();
+    let options = SkimOptionsBuilder::default()
+        .multi(false)
+        .expect(Some("alt-enter".to_string()))
+        .build()
+        .unwrap();
 
     let (send, recv): (SkimItemSender, SkimItemReceiver) = skim::prelude::unbounded();
     for candidate in candidates {
@@ -548,6 +551,14 @@ fn select_worktree_or_query(candidates: Vec<Arc<CleanupCandidate>>) -> Selection
         return Selection::Abort;
     };
     if result.is_abort {
+        return Selection::Abort;
+    }
+
+    if result.final_key == Key::AltEnter {
+        let query = result.query.trim();
+        if valid_worktree_name(query) {
+            return Selection::Create(query.to_string());
+        }
         return Selection::Abort;
     }
 

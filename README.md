@@ -58,7 +58,7 @@ Worktree interactive:
 - `shelf worktree interactive`: pick any linked worktree of the current repo and print its path
 - `shelf worktree interactive foo`: print the path of linked worktree `foo`, or create it (detached by default) if it does not exist
 - `shelf worktree interactive foo --branch alex/feature-x`: create `foo` with branch `alex/feature-x` instead of detaching
-- Inside the picker, pressing Enter on a query that matches nothing creates a worktree named after the query
+- Inside the picker, alt-enter creates a worktree named after the query (works even when the query fuzzy-matches existing entries, since their text is verbose); Enter on a query that matched nothing also creates
 - Print-a-path contract matches `shelf project preset`, so shell integration is e.g. `worktree() { cd "$(shelf worktree interactive "$@")"; }`
 
 Worktree cleanup:
