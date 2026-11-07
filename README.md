@@ -60,6 +60,7 @@ Worktree interactive:
 - `shelf worktree interactive foo --branch alex/feature-x`: create `foo` with branch `alex/feature-x` instead of detaching
 - Inside the picker, alt-enter creates a worktree named after the query (works even when the query fuzzy-matches existing entries, since their text is verbose); Enter on a query that matched nothing also creates
 - Print-a-path contract matches `shelf project preset`, so shell integration is e.g. `worktree() { cd "$(shelf worktree interactive "$@")"; }`
+- `shelf worktree name`: print the name of the linked worktree containing the current directory (empty output and a nonzero exit when not in one)
 
 Worktree cleanup:
 - `shelf worktree cleanup`: select one or more linked worktrees with skim, then remove them

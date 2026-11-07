@@ -58,6 +58,17 @@ pub fn interactive(args: &argparse::WorktreeInteractive) -> anyhow::Result<()> {
     }
 }
 
+pub fn name(_args: &argparse::WorktreeName) -> anyhow::Result<()> {
+    let (repo_workdir, _) = resolve_repo_from_cwd()?;
+    match worktree::inspect_repo_worktree(&repo_workdir)? {
+        Some(info) => {
+            println!("{}", info.worktree_name);
+            Ok(())
+        }
+        None => anyhow::bail!("not inside a linked worktree"),
+    }
+}
+
 fn jump_or_create(
     main_repo: &Path,
     name: &str,

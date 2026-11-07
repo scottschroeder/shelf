@@ -39,10 +39,15 @@ pub enum WorktreePicker {
     Create(WorktreeCreate),
     /// Jump to a linked worktree via a picker, or create one
     Interactive(WorktreeInteractive),
+    /// Print the name of the linked worktree containing the current directory
+    Name(WorktreeName),
     Cleanup(WorktreeCleanup),
     /// Remove worktrees across all repos under the worktree root
     CleanupAll(WorktreeCleanupAll),
 }
+
+#[derive(Parser, Debug)]
+pub struct WorktreeName {}
 
 #[derive(Parser, Debug)]
 pub struct WorktreeInteractive {

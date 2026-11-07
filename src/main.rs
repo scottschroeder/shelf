@@ -28,6 +28,7 @@ fn main() -> anyhow::Result<()> {
         argparse::SubCommand::Worktree(cmd) => match cmd {
             argparse::WorktreePicker::Create(args) => cmd::worktree::create(args),
             argparse::WorktreePicker::Interactive(args) => cmd::worktree::interactive(args),
+            argparse::WorktreePicker::Name(args) => cmd::worktree::name(args),
             argparse::WorktreePicker::Cleanup(args) => cmd::worktree::cleanup(args),
             argparse::WorktreePicker::CleanupAll(args) => cmd::worktree::cleanup_all(args),
         },
